@@ -172,9 +172,12 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       filter.setAttribute("id", id);
 
       // Encode the field so `depth` px spans the full channel range, giving
-      // the 8-bit map maximum precision.
+      // the 8-bit map maximum precision. Generate at device resolution
+      // (capped to bound canvas cost) so the map stays sharp on high-DPI
+      // displays; feImage scales it back down to CSS pixels.
       const depth = Math.max(options.depth, 1);
-      const field = computeDisplacementField(options);
+      const resolution = Math.min(doc.defaultView?.devicePixelRatio ?? 1, 2);
+      const field = computeDisplacementField(options, resolution);
       renderDisplacementMapToCanvas(mapCanvas, field, { scale: depth });
 
       // Both href forms are needed: Safari/Firefox honor xlink:href,

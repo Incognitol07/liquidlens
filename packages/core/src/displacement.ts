@@ -12,22 +12,31 @@ const GRADIENT_EPSILON = 0.5;
  * boundary are pulled along the edge normal toward the flat center (or pushed
  * radially from the lens center, depending on `splay`), with the magnitude
  * tapering to zero both toward the flat interior and out past the edge.
+ *
+ * `resolution` is the number of field samples per CSS pixel; pass the
+ * devicePixelRatio to generate a map that stays sharp on high-DPI displays.
+ * Lens geometry and displacement values are in CSS pixels regardless.
  */
-export function computeDisplacementField(params: LensParams): DisplacementField {
+export function computeDisplacementField(
+  params: LensParams,
+  resolution = 1,
+): DisplacementField {
   const { width, height, borderRadius, depth, curvature, splay } = params;
   const halfW = width / 2;
   const halfH = height / 2;
   const rimWidth = Math.max(1, curvature * Math.min(halfW, halfH));
   const outerFalloff = Math.max(1, rimWidth * 0.5);
 
-  const dx = new Float32Array(width * height);
-  const dy = new Float32Array(width * height);
+  const fieldWidth = Math.max(1, Math.round(width * resolution));
+  const fieldHeight = Math.max(1, Math.round(height * resolution));
+  const dx = new Float32Array(fieldWidth * fieldHeight);
+  const dy = new Float32Array(fieldWidth * fieldHeight);
 
-  for (let py = 0; py < height; py++) {
-    const y = py + 0.5 - halfH;
-    for (let px = 0; px < width; px++) {
-      const x = px + 0.5 - halfW;
-      const i = py * width + px;
+  for (let py = 0; py < fieldHeight; py++) {
+    const y = (py + 0.5) / resolution - halfH;
+    for (let px = 0; px < fieldWidth; px++) {
+      const x = (px + 0.5) / resolution - halfW;
+      const i = py * fieldWidth + px;
 
       const d = roundedRectSDF(x, y, halfW, halfH, borderRadius);
 
@@ -75,5 +84,5 @@ export function computeDisplacementField(params: LensParams): DisplacementField 
     }
   }
 
-  return { width, height, dx, dy };
+  return { width: fieldWidth, height: fieldHeight, dx, dy };
 }

@@ -43,4 +43,21 @@ describe("computeDisplacementField", () => {
     expect(field.dx[iRight]).toBeCloseTo(-field.dx[iLeft], 4);
     expect(field.dy[iRight]).toBeCloseTo(field.dy[iLeft], 4);
   });
+
+  it("scales sample count with resolution while keeping values in CSS px", () => {
+    const field1x = computeDisplacementField(baseParams);
+    const field2x = computeDisplacementField(baseParams, 2);
+
+    expect(field2x.width).toBe(baseParams.width * 2);
+    expect(field2x.height).toBe(baseParams.height * 2);
+
+    // The same physical location (near the left edge, vertically centered)
+    // carries roughly the same displacement at both resolutions.
+    const i1 = 30 * field1x.width + 2;
+    const i2 = 60 * field2x.width + 4;
+    const mag1 = Math.hypot(field1x.dx[i1], field1x.dy[i1]);
+    const mag2 = Math.hypot(field2x.dx[i2], field2x.dy[i2]);
+    expect(mag2).toBeGreaterThan(0);
+    expect(mag2).toBeCloseTo(mag1, 0);
+  });
 });
