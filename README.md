@@ -57,12 +57,12 @@ Options (all optional):
 | --- | --- | --- |
 | `depth` | `24` | Maximum displacement at the rim, in px |
 | `curvature` | `0.4` | Width of the curved rim relative to the lens size, 0 to 1 |
-| `splay` | `0` | Blends displacement direction from edge-normal (0) to radial (1) |
-| `aberration` | `0.12` | Chromatic aberration strength, 0 to 1 |
+| `splay` | `0.59` | Blends displacement direction from edge-normal (0) to radial (1) |
+| `aberration` | `0.05` | Chromatic aberration strength, 0 to 1 |
 | `blur` | `0.2` | Blur in px applied to the refracted content |
 | `saturation` | `1.15` | Saturation multiplier for the refracted content |
-| `lightAngle` | `-35` | Light direction in degrees: 0 lights the top edge, 90 the right edge |
-| `specular` | `0.8` | Strength of the specular rim highlight, 0 to 1 |
+| `lightAngle` | `0` | Light direction in degrees: 0 lights the top edge, 90 the right edge |
+| `specular` | `1` | Strength of the specular rim highlight, 0 to 1 |
 | `borderRadius` | computed style | Corner radius in px, read from the frame if omitted |
 
 ### `createGlassFilter(doc?)`

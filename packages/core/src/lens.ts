@@ -7,17 +7,17 @@ export interface LiquidLensOptions {
   depth?: number;
   /** 0..1 — width of the curved rim relative to the lens size (default 0.4) */
   curvature?: number;
-  /** 0..1 — blends displacement from edge-normal to radial (default 0) */
+  /** 0..1 — blends displacement from edge-normal to radial (default 0.59) */
   splay?: number;
-  /** 0..1 — chromatic aberration strength (default 0.12) */
+  /** 0..1 — chromatic aberration strength (default 0.05) */
   aberration?: number;
   /** Blur in px applied to the refracted content (default 0.2) */
   blur?: number;
   /** Saturation multiplier for the refracted content (default 1.15) */
   saturation?: number;
-  /** Light direction in degrees: 0 lights the top edge, 90 the right edge (default -35) */
+  /** Light direction in degrees: 0 lights the top edge, 90 the right edge (default 0) */
   lightAngle?: number;
-  /** 0..1 — strength of the specular rim highlight (default 0.8) */
+  /** 0..1 — strength of the specular rim highlight (default 1) */
   specular?: number;
   /** Corner radius in px; defaults to the frame's computed border-radius */
   borderRadius?: number;
@@ -48,12 +48,12 @@ export interface LiquidLens {
 const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius">> = {
   depth: 24,
   curvature: 0.4,
-  splay: 0,
-  aberration: 0.12,
+  splay: 0.59,
+  aberration: 0.05,
   blur: 0.2,
   saturation: 1.15,
-  lightAngle: -35,
-  specular: 0.8,
+  lightAngle: 0,
+  specular: 1,
 };
 
 /**
