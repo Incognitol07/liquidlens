@@ -112,6 +112,26 @@ const appliedGeom = { w: geomW.value, h: geomH.value, r: geomR.value };
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
+// Menu springs and variables — snappier stiffness for UI-scale morphs
+const menuW = new Spring(120, 220, 18);
+const menuH = new Spring(36, 220, 18);
+const menuR = new Spring(18, 220, 18);
+let menuExpanded = false;
+let menuLens: LiquidLens | undefined;
+const menuApplied = { w: menuW.value, h: menuH.value, r: menuR.value };
+let menuNeedsFinalPass = false;
+
+const MENU_OPTIONS = {
+  depth: 10,
+  curvature: 0.3,
+  splay: 0.5,
+  aberration: 0.015,
+  blur: 0.4,
+  saturation: 1.15,
+  lightAngle: 0,
+  specular: 0.7,
+};
+
 /** Lens options at this instant; borderRadius follows the animated spring. */
 function currentOptions(): Required<LiquidLensOptions> {
   return {
@@ -157,7 +177,11 @@ function tick(now: number): void {
   geomH.target = num("height");
   geomR.target = num("borderRadius");
 
-  const springs = [springX, springY, press, geomW, geomH, geomR];
+  menuW.target = menuExpanded ? 240 : 120;
+  menuH.target = menuExpanded ? 88 : 36;
+  menuR.target = menuExpanded ? 12 : 18;
+
+  const springs = [springX, springY, press, geomW, geomH, geomR, menuW, menuH, menuR];
   if (reducedMotion.matches) {
     // No wobble, stretch, swell, or morph tween for users who asked for
     // less motion; everything jumps straight to its target.
@@ -183,6 +207,24 @@ function tick(now: number): void {
     needsFinalPass = true;
   }
 
+  // Menu morph: resize the menu frame and regenerate maps cheaply.
+  const menuChanged =
+    Math.abs(menuW.value - menuApplied.w) > 0.1 ||
+    Math.abs(menuH.value - menuApplied.h) > 0.1 ||
+    Math.abs(menuR.value - menuApplied.r) > 0.1;
+
+  if (menuChanged) {
+    menuApplied.w = menuW.value;
+    menuApplied.h = menuH.value;
+    menuApplied.r = menuR.value;
+    const menuEl = document.getElementById("liquid-menu")!;
+    menuEl.style.width = `${menuW.value}px`;
+    menuEl.style.height = `${menuH.value}px`;
+    menuEl.style.borderRadius = `${menuR.value}px`;
+    menuLens?.update({ borderRadius: menuR.value }, 0.5);
+    menuNeedsFinalPass = true;
+  }
+
   applyTransform();
   lens?.setIntensity(1 + 0.9 * press.value);
 
@@ -194,6 +236,10 @@ function tick(now: number): void {
       needsFinalPass = false;
       lens?.update(currentOptions());
       refreshPreviews();
+    }
+    if (menuNeedsFinalPass) {
+      menuNeedsFinalPass = false;
+      menuLens?.update({ borderRadius: menuR.value });
     }
     rafId = undefined;
   }
@@ -338,3 +384,101 @@ lensEl.style.borderRadius = `${geomR.value}px`;
 applyTransform();
 lens = createLiquidLens(lensEl, background, currentOptions());
 refreshPreviews();
+
+// ---------------------------------------------------------------------------
+// Menu Init & Interaction
+
+const menuEl = document.getElementById("liquid-menu")!;
+const controlsEl = document.getElementById("controls")!;
+const optReset = document.getElementById("opt-reset")!;
+const optRandomize = document.getElementById("opt-randomize")!;
+
+menuEl.style.width = `${menuW.value}px`;
+menuEl.style.height = `${menuH.value}px`;
+menuEl.style.borderRadius = `${menuR.value}px`;
+menuLens = createLiquidLens(menuEl, controlsEl, {
+  ...MENU_OPTIONS,
+  borderRadius: menuR.value,
+});
+
+// Sync refraction on scroll
+controlsEl.addEventListener("scroll", () => {
+  menuLens?.sync();
+});
+
+// Toggle menu on click (excluding option clicks)
+menuEl.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  if (target.closest(".menu-opt-btn")) {
+    return;
+  }
+  if (menuExpanded) {
+    collapseMenu();
+  } else {
+    expandMenu();
+  }
+});
+
+function expandMenu(): void {
+  if (menuExpanded) return;
+  menuExpanded = true;
+  menuEl.classList.add("is-expanded");
+  wake();
+}
+
+function collapseMenu(): void {
+  if (!menuExpanded) return;
+  menuExpanded = false;
+  menuEl.classList.remove("is-expanded");
+  wake();
+}
+
+// Click outside to close
+document.addEventListener("click", (event) => {
+  if (menuExpanded && !menuEl.contains(event.target as Node)) {
+    collapseMenu();
+  }
+});
+
+// Menu Action Options
+const DEFAULT_VALUES = {
+  width: 123,
+  height: 118,
+  borderRadius: 60,
+  depth: 24,
+  curvature: 0.4,
+  splay: 0.59,
+  aberration: 0.05,
+  blur: 0.2,
+  saturation: 1.15,
+  lightAngle: 0,
+  specular: 1,
+} as const;
+
+optReset.addEventListener("click", (event) => {
+  event.stopPropagation();
+  for (const [id, value] of Object.entries(DEFAULT_VALUES)) {
+    const input = inputs[id as ControlId];
+    if (input) {
+      input.value = String(value);
+      input.dispatchEvent(new Event("input"));
+    }
+  }
+});
+
+optRandomize.addEventListener("click", (event) => {
+  event.stopPropagation();
+  for (const id of ids) {
+    const input = inputs[id];
+    if (!input) continue;
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const step = Number(input.step) || 1;
+    const range = max - min;
+    const stepsCount = Math.floor(range / step);
+    const randomStep = Math.floor(Math.random() * (stepsCount + 1));
+    const randomValue = min + randomStep * step;
+    input.value = String(randomValue);
+    input.dispatchEvent(new Event("input"));
+  }
+});

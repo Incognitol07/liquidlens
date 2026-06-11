@@ -305,12 +305,7 @@
         background-image: url("https://picsum.photos/id/1025/96/64");
       }
 
-      .hint {
-        margin: auto 0 0;
-        padding-top: 24px;
-        font-size: 10.5px;
-        color: var(--text-faint);
-      }
+     
 
       /* ----------------------------------------------------------------- */
       /* Stage                                                              */
@@ -390,6 +385,146 @@
         color: var(--text-faint);
         margin-top: 8px;
         text-align: center;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Morphing Liquid Menu                                               */
+
+      #liquid-menu-wrapper {
+        position: relative;
+        margin-top: 12px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100px;
+      }
+
+      #liquid-menu {
+        position: relative;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid var(--border);
+        box-shadow:
+          0 2px 8px rgba(0, 0, 0, 0.2),
+          0 0 0 0.5px rgba(255, 255, 255, 0.04) inset;
+        user-select: none;
+        overflow: hidden;
+        transition: border-color 120ms ease;
+      }
+
+      #liquid-menu:hover {
+        border-color: #2d2d36;
+      }
+
+      #liquid-menu.is-expanded {
+        cursor: default;
+        border-color: var(--border);
+      }
+
+      .menu-collapsed-content,
+      .menu-expanded-content {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2;
+        transition:
+          opacity 180ms cubic-bezier(0.4, 0, 0.2, 1),
+          transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .menu-collapsed-content {
+        gap: 7px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--text-dim);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      #liquid-menu:hover .menu-collapsed-content {
+        color: var(--text);
+      }
+
+      .menu-collapsed-content .menu-icon {
+        width: 13px;
+        height: 13px;
+        color: var(--text-faint);
+        transition: color 120ms ease;
+      }
+
+      #liquid-menu:hover .menu-collapsed-content .menu-icon {
+        color: var(--text-dim);
+      }
+
+      .menu-expanded-content {
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px;
+        box-sizing: border-box;
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.96);
+      }
+
+      #liquid-menu.is-expanded .menu-collapsed-content {
+        opacity: 0;
+        pointer-events: none;
+        transform: scale(0.9);
+      }
+
+      #liquid-menu.is-expanded .menu-expanded-content {
+        opacity: 1;
+        pointer-events: auto;
+        transform: scale(1);
+      }
+
+      .menu-opt-btn {
+        width: 100%;
+        height: 30px;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        color: var(--text-dim);
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        cursor: pointer;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease,
+          color 120ms ease;
+      }
+
+      .menu-opt-btn:hover {
+        background: rgba(255, 255, 255, 0.07);
+        border-color: rgba(255, 255, 255, 0.1);
+        color: var(--text);
+      }
+
+      .menu-opt-btn:active {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .menu-opt-btn .opt-icon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        color: var(--text-faint);
+        transition: color 120ms ease;
+      }
+
+      .menu-opt-btn:hover .opt-icon {
+        color: var(--text-dim);
       }
     </style>
   </head>
@@ -485,7 +620,41 @@
         </div>
       </section>
 
-      <p class="hint">Double-click a slider to reset it.</p>
+      <section class="group" id="liquid-menu-section">
+        <h2>Quick Actions</h2>
+        <div id="liquid-menu-wrapper">
+          <div id="liquid-menu" class="menu-lens">
+            <div class="menu-collapsed-content">
+              <svg class="menu-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2v4l2 2"/>
+                <path d="M3.05 6.36A5.5 5.5 0 1 0 8 2.5"/>
+                <polyline points="1.5 6.5 3.05 6.36 3.2 4.8"/>
+              </svg>
+              <span>Actions</span>
+            </div>
+            <div class="menu-expanded-content">
+              <button class="menu-opt-btn" id="opt-reset">
+                <svg class="opt-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2.5 2.5v4h4"/>
+                  <path d="M2.84 10a5.5 5.5 0 1 0 .94-5.72L2.5 6.5"/>
+                </svg>
+                <span>Reset All</span>
+              </button>
+              <button class="menu-opt-btn" id="opt-randomize">
+                <svg class="opt-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 4h3.5l5 8H14"/>
+                  <path d="M2 12h3.5l2-3.2"/>
+                  <path d="M9.5 4H14"/>
+                  <polyline points="12 2 14 4 12 6"/>
+                  <polyline points="12 10 14 12 12 14"/>
+                </svg>
+                <span>Randomize</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
     <div id="stage">
