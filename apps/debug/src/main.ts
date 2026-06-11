@@ -40,9 +40,35 @@ function num(id: ControlId): number {
   return Number(inputs[id].value);
 }
 
+function formatValue(id: ControlId, value: number): string {
+  switch (id) {
+    case "width":
+    case "height":
+    case "borderRadius":
+    case "depth":
+      return `${Math.round(value)}px`;
+    case "blur":
+      return `${value.toFixed(1)}px`;
+    case "lightAngle":
+      return `${Math.round(value)}°`;
+    case "saturation":
+      return `${value.toFixed(2)}×`;
+    default:
+      return value.toFixed(2);
+  }
+}
+
+/** Updates each control's value readout and its track-fill percentage. */
 function refreshLabels(): void {
   for (const id of ids) {
-    valueLabels[id].textContent = inputs[id].value;
+    const input = inputs[id];
+    const value = Number(input.value);
+    valueLabels[id].textContent = formatValue(id, value);
+
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const fraction = max > min ? (value - min) / (max - min) : 0;
+    input.style.setProperty("--p", `${fraction * 100}%`);
   }
 }
 
@@ -262,15 +288,20 @@ const BACKDROP_IMAGES: Record<string, string> = {
   pug: 'url("https://picsum.photos/id/1025/960/640")',
 };
 
-const backdropImageSelect = document.getElementById("backdrop-image") as HTMLSelectElement;
+const swatches = Array.from(document.querySelectorAll<HTMLButtonElement>(".swatch"));
 const backdropTextInput = document.getElementById("backdrop-text") as HTMLInputElement;
 
-backdropImageSelect.addEventListener("input", () => {
-  document.documentElement.style.setProperty(
-    "--backdrop-image",
-    BACKDROP_IMAGES[backdropImageSelect.value],
-  );
-});
+for (const swatch of swatches) {
+  swatch.addEventListener("click", () => {
+    for (const other of swatches) {
+      other.classList.toggle("is-active", other === swatch);
+    }
+    document.documentElement.style.setProperty(
+      "--backdrop-image",
+      BACKDROP_IMAGES[swatch.dataset.image!],
+    );
+  });
+}
 
 backdropTextInput.addEventListener("input", () => {
   // JSON.stringify produces a valid quoted CSS string for `content`.

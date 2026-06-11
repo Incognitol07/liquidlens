@@ -8,6 +8,15 @@
       :root {
         color-scheme: dark;
         font-family: system-ui, sans-serif;
+        --bg: #0a0a0e;
+        --panel: #111116;
+        --border: #1f1f26;
+        --text: #ececf1;
+        --text-dim: #9b9ba6;
+        --text-faint: #595964;
+        --track: #28282f;
+        --fill: #d8d8e2;
+        --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
         --backdrop-image:
           repeating-linear-gradient(45deg, #ff5f6d 0 20px, #ffc371 20px 40px),
           repeating-linear-gradient(-45deg, transparent 0 10px, rgba(0, 0, 0, 0.15) 10px 20px);
@@ -19,49 +28,292 @@
         display: grid;
         grid-template-columns: 280px 1fr;
         min-height: 100vh;
-        background: #0e0e12;
-        color: #eee;
+        background: var(--bg);
+        color: var(--text);
       }
 
-      h1 {
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #888;
-        margin: 0 0 16px;
-      }
+      /* ----------------------------------------------------------------- */
+      /* Panel                                                              */
 
       #controls {
-        padding: 24px;
-        border-right: 1px solid #222;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        box-sizing: border-box;
+        overflow-y: auto;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        padding: 0 20px 16px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--track) transparent;
       }
 
-      .control label {
+      #controls::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      #controls::-webkit-scrollbar-thumb {
+        background: var(--track);
+        border-radius: 5px;
+        border: 3px solid var(--panel);
+      }
+
+      #panel-header {
         display: flex;
-        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        padding: 18px 0 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      #panel-header .wordmark {
+        font-family: var(--mono);
         font-size: 13px;
-        margin-bottom: 4px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
       }
 
-      .control input[type="range"] {
-        width: 100%;
+      #panel-header .tag {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-faint);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 7px;
       }
 
-      .control select,
-      .control input[type="text"] {
-        width: 100%;
-        box-sizing: border-box;
-        background: #1a1a1f;
-        color: #eee;
-        border: 1px solid #333;
+      .group {
+        padding-top: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .group + .group {
+        margin-top: 14px;
+        border-top: 1px solid var(--border);
+      }
+
+      .group h2 {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--text-faint);
+        margin: 0 0 8px;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Control rows: name | input | value, all on one line               */
+
+      .control {
+        display: grid;
+        grid-template-columns: 86px 1fr 48px;
+        align-items: center;
+        gap: 10px;
+        min-height: 26px;
         border-radius: 6px;
-        padding: 6px 8px;
-        font: inherit;
-        font-size: 13px;
       }
+
+      .control-name {
+        font-size: 11.5px;
+        color: var(--text-dim);
+        white-space: nowrap;
+        transition: color 120ms ease;
+      }
+
+      .control:hover .control-name {
+        color: var(--text);
+      }
+
+      .control-value {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .control-wide {
+        grid-column: 2 / -1;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Sliders                                                            */
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 16px;
+        margin: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      input[type="range"]:focus-visible {
+        outline: none;
+      }
+
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 2px;
+        border-radius: 1px;
+        background: linear-gradient(
+          to right,
+          var(--fill) var(--p, 50%),
+          var(--track) var(--p, 50%)
+        );
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 10px;
+        height: 10px;
+        margin-top: -4px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 0 3px var(--panel);
+        transition: transform 120ms ease;
+      }
+
+      input[type="range"]:hover::-webkit-slider-thumb,
+      input[type="range"]:active::-webkit-slider-thumb {
+        transform: scale(1.25);
+      }
+
+      input[type="range"]:focus-visible::-webkit-slider-thumb {
+        box-shadow:
+          0 0 0 3px var(--panel),
+          0 0 0 5px var(--text-faint);
+      }
+
+      input[type="range"]::-moz-range-track {
+        height: 2px;
+        border-radius: 1px;
+        background: var(--track);
+      }
+
+      input[type="range"]::-moz-range-progress {
+        height: 2px;
+        border-radius: 1px;
+        background: var(--fill);
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 10px;
+        height: 10px;
+        border: none;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 0 3px var(--panel);
+        transition: transform 120ms ease;
+      }
+
+      input[type="range"]:hover::-moz-range-thumb,
+      input[type="range"]:active::-moz-range-thumb {
+        transform: scale(1.25);
+      }
+
+      input[type="range"]:focus-visible::-moz-range-thumb {
+        box-shadow:
+          0 0 0 3px var(--panel),
+          0 0 0 5px var(--text-faint);
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Text input + backdrop swatches                                     */
+
+      input[type="text"] {
+        box-sizing: border-box;
+        width: 100%;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        transition: border-color 120ms ease;
+      }
+
+      input[type="text"]:hover {
+        border-color: #2d2d36;
+      }
+
+      input[type="text"]:focus-visible {
+        outline: none;
+        border-color: #43434f;
+      }
+
+      .swatches {
+        display: flex;
+        gap: 6px;
+      }
+
+      .swatch {
+        flex: 1;
+        height: 26px;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 5px;
+        background-size: cover;
+        background-position: center;
+        cursor: pointer;
+        opacity: 0.65;
+        transition:
+          opacity 120ms ease,
+          box-shadow 120ms ease;
+      }
+
+      .swatch:hover {
+        opacity: 1;
+      }
+
+      .swatch:focus-visible {
+        outline: none;
+      }
+
+      .swatch.is-active {
+        opacity: 1;
+        box-shadow:
+          0 0 0 2px var(--panel),
+          0 0 0 3.5px var(--text-dim);
+      }
+
+      .swatch[data-image="stripes"] {
+        background-image: repeating-linear-gradient(45deg, #ff5f6d 0 6px, #ffc371 6px 12px);
+      }
+
+      .swatch[data-image="river"] {
+        background-image: url("https://picsum.photos/id/1015/96/64");
+      }
+
+      .swatch[data-image="canyon"] {
+        background-image: url("https://picsum.photos/id/1016/96/64");
+      }
+
+      .swatch[data-image="mountains"] {
+        background-image: url("https://picsum.photos/id/1018/96/64");
+      }
+
+      .swatch[data-image="pug"] {
+        background-image: url("https://picsum.photos/id/1025/96/64");
+      }
+
+      .hint {
+        margin: auto 0 0;
+        padding-top: 24px;
+        font-size: 10.5px;
+        color: var(--text-faint);
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Stage                                                              */
 
       #stage {
         position: relative;
@@ -69,7 +321,7 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 32px;
+        gap: 40px;
         padding: 32px;
       }
 
@@ -118,15 +370,24 @@
           0 10px 30px rgba(0, 0, 0, 0.2);
       }
 
-      #map-preview {
+      #previews {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+
+      #previews canvas {
+        display: block;
         image-rendering: pixelated;
-        border: 1px solid #333;
-        background: #1a1a1f;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
       }
 
       .map-label {
-        font-size: 12px;
-        color: #888;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--text-faint);
         margin-top: 8px;
         text-align: center;
       }
@@ -134,67 +395,97 @@
   </head>
   <body>
     <div id="controls">
-      <h1>Lens Params</h1>
-      <div class="control">
-        <label for="width"><span>width</span><span id="width-value"></span></label>
-        <input id="width" type="range" min="40" max="480" step="1" value="123" />
-      </div>
-      <div class="control">
-        <label for="height"><span>height</span><span id="height-value"></span></label>
-        <input id="height" type="range" min="40" max="320" step="1" value="118" />
-      </div>
-      <div class="control">
-        <label for="borderRadius"><span>borderRadius</span><span id="borderRadius-value"></span></label>
-        <input id="borderRadius" type="range" min="0" max="160" step="1" value="60" />
-      </div>
-      <div class="control">
-        <label for="depth"><span>depth</span><span id="depth-value"></span></label>
-        <input id="depth" type="range" min="0" max="60" step="1" value="24" />
-      </div>
-      <div class="control">
-        <label for="curvature"><span>curvature</span><span id="curvature-value"></span></label>
-        <input id="curvature" type="range" min="0" max="1" step="0.01" value="0.4" />
-      </div>
-      <div class="control">
-        <label for="splay"><span>splay</span><span id="splay-value"></span></label>
-        <input id="splay" type="range" min="0" max="1" step="0.01" value="0.59" />
-      </div>
-      <div class="control">
-        <label for="aberration"><span>aberration</span><span id="aberration-value"></span></label>
-        <input id="aberration" type="range" min="0" max="0.5" step="0.01" value="0.05" />
-      </div>
-      <div class="control">
-        <label for="blur"><span>blur</span><span id="blur-value"></span></label>
-        <input id="blur" type="range" min="0" max="4" step="0.1" value="0.2" />
-      </div>
-      <div class="control">
-        <label for="saturation"><span>saturation</span><span id="saturation-value"></span></label>
-        <input id="saturation" type="range" min="0.5" max="2" step="0.05" value="1.15" />
-      </div>
-      <div class="control">
-        <label for="lightAngle"><span>lightAngle</span><span id="lightAngle-value"></span></label>
-        <input id="lightAngle" type="range" min="-180" max="180" step="1" value="0" />
-      </div>
-      <div class="control">
-        <label for="specular"><span>specular</span><span id="specular-value"></span></label>
-        <input id="specular" type="range" min="0" max="1" step="0.05" value="1" />
-      </div>
+      <header id="panel-header">
+        <span class="wordmark">caustics</span>
+        <span class="tag">debug</span>
+      </header>
 
-      <h1>Backdrop</h1>
-      <div class="control">
-        <label for="backdrop-image"><span>image</span></label>
-        <select id="backdrop-image">
-          <option value="stripes">stripes</option>
-          <option value="river">mountain river</option>
-          <option value="canyon">canyon</option>
-          <option value="mountains">mountains</option>
-          <option value="pug">pug</option>
-        </select>
-      </div>
-      <div class="control">
-        <label for="backdrop-text"><span>text</span></label>
-        <input id="backdrop-text" type="text" value="caustics" />
-      </div>
+      <section class="group">
+        <h2>Geometry</h2>
+        <div class="control">
+          <label class="control-name" for="width">width</label>
+          <input id="width" type="range" min="40" max="480" step="1" value="123" />
+          <output class="control-value" id="width-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="height">height</label>
+          <input id="height" type="range" min="40" max="320" step="1" value="118" />
+          <output class="control-value" id="height-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="borderRadius">radius</label>
+          <input id="borderRadius" type="range" min="0" max="160" step="1" value="60" />
+          <output class="control-value" id="borderRadius-value"></output>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2>Optics</h2>
+        <div class="control">
+          <label class="control-name" for="depth">depth</label>
+          <input id="depth" type="range" min="0" max="60" step="1" value="24" />
+          <output class="control-value" id="depth-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="curvature">curvature</label>
+          <input id="curvature" type="range" min="0" max="1" step="0.01" value="0.4" />
+          <output class="control-value" id="curvature-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="splay">splay</label>
+          <input id="splay" type="range" min="0" max="1" step="0.01" value="0.59" />
+          <output class="control-value" id="splay-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="aberration">aberration</label>
+          <input id="aberration" type="range" min="0" max="0.5" step="0.01" value="0.05" />
+          <output class="control-value" id="aberration-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="blur">blur</label>
+          <input id="blur" type="range" min="0" max="4" step="0.1" value="0.2" />
+          <output class="control-value" id="blur-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="saturation">saturation</label>
+          <input id="saturation" type="range" min="0.5" max="2" step="0.05" value="1.15" />
+          <output class="control-value" id="saturation-value"></output>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2>Light</h2>
+        <div class="control">
+          <label class="control-name" for="lightAngle">angle</label>
+          <input id="lightAngle" type="range" min="-180" max="180" step="1" value="0" />
+          <output class="control-value" id="lightAngle-value"></output>
+        </div>
+        <div class="control">
+          <label class="control-name" for="specular">specular</label>
+          <input id="specular" type="range" min="0" max="1" step="0.05" value="1" />
+          <output class="control-value" id="specular-value"></output>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2>Backdrop</h2>
+        <div class="control">
+          <span class="control-name">image</span>
+          <div class="swatches control-wide" role="radiogroup" aria-label="Backdrop image">
+            <button class="swatch is-active" data-image="stripes" title="stripes" aria-label="stripes"></button>
+            <button class="swatch" data-image="river" title="mountain river" aria-label="mountain river"></button>
+            <button class="swatch" data-image="canyon" title="canyon" aria-label="canyon"></button>
+            <button class="swatch" data-image="mountains" title="mountains" aria-label="mountains"></button>
+            <button class="swatch" data-image="pug" title="pug" aria-label="pug"></button>
+          </div>
+        </div>
+        <div class="control">
+          <label class="control-name" for="backdrop-text">text</label>
+          <input class="control-wide" id="backdrop-text" type="text" value="caustics" />
+        </div>
+      </section>
+
+      <p class="hint">Double-click a slider to reset it.</p>
     </div>
 
     <div id="stage">
@@ -202,14 +493,14 @@
         <div class="lens" id="lens"></div>
       </div>
 
-      <div style="display: flex; gap: 24px; align-items: flex-start">
+      <div id="previews">
         <div>
           <canvas id="map-preview"></canvas>
-          <div class="map-label">displacement map (R = dx, G = dy, neutral = 128)</div>
+          <div class="map-label">displacement (R = dx, G = dy, 128 = neutral)</div>
         </div>
         <div>
           <canvas id="specular-preview"></canvas>
-          <div class="map-label">specular map (alpha = highlight)</div>
+          <div class="map-label">specular (alpha = highlight)</div>
         </div>
       </div>
     </div>
