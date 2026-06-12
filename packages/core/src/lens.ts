@@ -31,10 +31,19 @@ export interface LiquidLens {
    */
   update(options?: LiquidLensOptions, resolution?: number): void;
   /**
-   * Re-aligns the backdrop copy with the real backdrop. Call after moving
-   * the frame (e.g. on every drag frame). Cheap, no map regeneration.
+   * Re-aligns the backdrop copy with the real backdrop by measuring both
+   * elements. Call after the frame moved for a reason you cannot quantify
+   * (e.g. the backdrop scrolled). Forces a layout pass; on per-frame paths
+   * where the position is already known, prefer `syncTo`.
    */
   sync(): void;
+  /**
+   * Like `sync`, but takes the frame's offset from the backdrop's top-left
+   * corner instead of measuring it, so it never reads layout — safe to call
+   * on every frame of a drag. Decorative rotate/scale transforms on the
+   * frame should be excluded from the offset.
+   */
+  syncTo(offsetX: number, offsetY: number): void;
   /**
    * Scales the refraction strength relative to the configured depth without
    * regenerating the map. Cheap; intended for per-frame interaction
@@ -117,12 +126,22 @@ export function createLiquidLens(
   refraction.appendChild(clone);
   frame.appendChild(refraction);
 
+  let syncedX = Number.NaN;
+  let syncedY = Number.NaN;
+
+  function syncTo(offsetX: number, offsetY: number): void {
+    if (offsetX === syncedX && offsetY === syncedY) {
+      return;
+    }
+    syncedX = offsetX;
+    syncedY = offsetY;
+    clone.style.transform = `translate(${-offsetX}px, ${-offsetY}px)`;
+  }
+
   function sync(): void {
     const frameRect = frame.getBoundingClientRect();
     const backdropRect = backdrop.getBoundingClientRect();
-    const dx = frameRect.left - backdropRect.left;
-    const dy = frameRect.top - backdropRect.top;
-    clone.style.transform = `translate(${-dx}px, ${-dy}px)`;
+    syncTo(frameRect.left - backdropRect.left, frameRect.top - backdropRect.top);
   }
 
   // Size of the frame at the last update, so the ResizeObserver can skip
@@ -182,6 +201,7 @@ export function createLiquidLens(
   return {
     update,
     sync,
+    syncTo,
     setIntensity: glassFilter.setIntensity,
     destroy(): void {
       resizeObserver?.disconnect();

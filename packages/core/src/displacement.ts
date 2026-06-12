@@ -1,9 +1,6 @@
-import { roundedRectSDF } from "./sdf";
+import { sampleRoundedRect, type RoundedRectSample } from "./sdf";
 import { clamp, smoothstep } from "./math";
 import type { LensParams, DisplacementField } from "./types";
-
-/** Step used for the numeric gradient of the rounded-rect SDF, in pixels */
-const GRADIENT_EPSILON = 0.5;
 
 /**
  * Computes a per-pixel displacement field for a glass lens of the given shape.
@@ -16,6 +13,10 @@ const GRADIENT_EPSILON = 0.5;
  * `resolution` is the number of field samples per CSS pixel; pass the
  * devicePixelRatio to generate a map that stays sharp on high-DPI displays.
  * Lens geometry and displacement values are in CSS pixels regardless.
+ *
+ * The lens shape is symmetric across both axes, so only the top-left
+ * quadrant is computed; the rest is mirrored with the appropriate sign
+ * flips.
  */
 export function computeDisplacementField(
   params: LensParams,
@@ -32,13 +33,24 @@ export function computeDisplacementField(
   const dx = new Float32Array(fieldWidth * fieldHeight);
   const dy = new Float32Array(fieldWidth * fieldHeight);
 
-  for (let py = 0; py < fieldHeight; py++) {
-    const y = (py + 0.5) / resolution - halfH;
-    for (let px = 0; px < fieldWidth; px++) {
-      const x = (px + 0.5) / resolution - halfW;
-      const i = py * fieldWidth + px;
+  // Sample at the field's own center so mirrored pixels sit at exactly
+  // negated coordinates even when rounding made fieldWidth/resolution
+  // differ slightly from the CSS width.
+  const centerX = fieldWidth / 2;
+  const centerY = fieldHeight / 2;
+  const quadrantW = (fieldWidth + 1) >> 1;
+  const quadrantH = (fieldHeight + 1) >> 1;
 
-      const d = roundedRectSDF(x, y, halfW, halfH, borderRadius);
+  const sample: RoundedRectSample = { distance: 0, normalX: 0, normalY: 0 };
+
+  for (let py = 0; py < quadrantH; py++) {
+    const y = (py + 0.5 - centerY) / resolution;
+    const my = fieldHeight - 1 - py;
+    for (let px = 0; px < quadrantW; px++) {
+      const x = (px + 0.5 - centerX) / resolution;
+
+      sampleRoundedRect(x, y, halfW, halfH, borderRadius, sample);
+      const d = sample.distance;
 
       let weight: number;
       if (d <= 0) {
@@ -52,35 +64,37 @@ export function computeDisplacementField(
         continue;
       }
 
-      // Numeric gradient of the SDF gives the outward surface normal.
-      const gx =
-        (roundedRectSDF(x + GRADIENT_EPSILON, y, halfW, halfH, borderRadius) -
-          roundedRectSDF(x - GRADIENT_EPSILON, y, halfW, halfH, borderRadius)) /
-        (2 * GRADIENT_EPSILON);
-      const gy =
-        (roundedRectSDF(x, y + GRADIENT_EPSILON, halfW, halfH, borderRadius) -
-          roundedRectSDF(x, y - GRADIENT_EPSILON, halfW, halfH, borderRadius)) /
-        (2 * GRADIENT_EPSILON);
-      const gLen = Math.hypot(gx, gy) || 1;
-
       // Edge-normal direction, pointing inward toward the lens center.
-      const normalX = -gx / gLen;
-      const normalY = -gy / gLen;
+      const normalX = -sample.normalX;
+      const normalY = -sample.normalY;
 
       // Radial direction, pointing away from the lens center.
-      const rLen = Math.hypot(x, y) || 1;
+      const rLen = Math.sqrt(x * x + y * y) || 1;
       const radialX = x / rLen;
       const radialY = y / rLen;
 
       let dirX = normalX * (1 - splay) + radialX * splay;
       let dirY = normalY * (1 - splay) + radialY * splay;
-      const dirLen = Math.hypot(dirX, dirY) || 1;
-      dirX /= dirLen;
-      dirY /= dirLen;
+      const dirLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
 
-      const magnitude = depth * weight;
-      dx[i] = dirX * magnitude;
-      dy[i] = dirY * magnitude;
+      const vx = (dirX / dirLen) * depth * weight;
+      const vy = (dirY / dirLen) * depth * weight;
+
+      // Mirror into the other three quadrants: x-reflection negates the
+      // horizontal component, y-reflection the vertical one.
+      const mx = fieldWidth - 1 - px;
+      const i00 = py * fieldWidth + px;
+      const i10 = py * fieldWidth + mx;
+      const i01 = my * fieldWidth + px;
+      const i11 = my * fieldWidth + mx;
+      dx[i00] = vx;
+      dy[i00] = vy;
+      dx[i10] = -vx;
+      dy[i10] = vy;
+      dx[i01] = vx;
+      dy[i01] = -vy;
+      dx[i11] = -vx;
+      dy[i11] = -vy;
     }
   }
 

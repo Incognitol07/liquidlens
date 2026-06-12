@@ -86,6 +86,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// Cached backdrop size so the animation loop and pointermove handlers never
+// read layout (clientWidth after a style write forces a synchronous reflow).
+let backgroundW = background.clientWidth;
+let backgroundH = background.clientHeight;
+new ResizeObserver(() => {
+  backgroundW = background.clientWidth;
+  backgroundH = background.clientHeight;
+}).observe(background);
+
 // ---------------------------------------------------------------------------
 // Liquid motion
 //
@@ -148,8 +157,8 @@ function currentOptions(): Required<LiquidLensOptions> {
 }
 
 function applyTransform(): void {
-  const left = (background.clientWidth - geomW.value) / 2 + springX.value;
-  const top = (background.clientHeight - geomH.value) / 2 + springY.value;
+  const left = (backgroundW - geomW.value) / 2 + springX.value;
+  const top = (backgroundH - geomH.value) / 2 + springY.value;
 
   // Squash-and-stretch along the direction of travel.
   const speed = Math.hypot(springX.velocity, springY.velocity);
@@ -164,7 +173,9 @@ function applyTransform(): void {
   lensEl.style.transform =
     `translate(${left}px, ${top}px) ` +
     `rotate(${angle}rad) scale(${scaleX}, ${scaleY}) rotate(${-angle}rad)`;
-  lens?.sync();
+  // The lens sits at the backdrop's origin and moves by transform only, so
+  // its offset is exactly (left, top); syncTo avoids measuring layout.
+  lens?.syncTo(left, top);
 }
 
 function tick(now: number): void {
@@ -295,8 +306,8 @@ lensEl.addEventListener("pointerdown", (event) => {
   const grabY = event.clientY - target.y;
 
   const onMove = (moveEvent: PointerEvent) => {
-    const maxX = (background.clientWidth - geomW.value) / 2;
-    const maxY = (background.clientHeight - geomH.value) / 2;
+    const maxX = (backgroundW - geomW.value) / 2;
+    const maxY = (backgroundH - geomH.value) / 2;
     target.x = clamp(moveEvent.clientX - grabX, -maxX, maxX);
     target.y = clamp(moveEvent.clientY - grabY, -maxY, maxY);
   };

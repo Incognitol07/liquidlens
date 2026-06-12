@@ -13,13 +13,25 @@ const CHANNEL_MATRICES = {
   blue: "0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0",
 } as const;
 
+/** Below this, the per-channel split is invisible and not worth its cost. */
+const ABERRATION_EPSILON = 0.0005;
+/** Below this distance from 1, the saturate pass changes nothing visible. */
+const SATURATION_EPSILON = 0.001;
+
 /** The optical (non-geometry) knobs of the glass effect. */
 export interface GlassEffectOptions {
-  /** 0..1: relative extra displacement of red vs blue (chromatic aberration) */
+  /**
+   * 0..1: relative extra displacement of red vs blue (chromatic aberration).
+   * 0 collapses the three per-channel displacement passes into one, which
+   * is markedly cheaper on devices that rasterize SVG filters on the CPU.
+   */
   aberration: number;
-  /** Gaussian blur stdDeviation in px applied to the refracted content */
+  /**
+   * Gaussian blur stdDeviation in px applied to the refracted content.
+   * 0 removes the blur pass from the filter entirely.
+   */
   blur: number;
-  /** Color saturation multiplier; 1 leaves colors unchanged */
+  /** Color saturation multiplier; 1 leaves colors unchanged (pass skipped) */
   saturation: number;
   /** Light direction in degrees: 0 lights the top edge, 90 the right edge */
   lightAngle: number;
@@ -47,6 +59,7 @@ export interface GlassFilter {
    * Multiplies the displacement magnitude on top of the last `update`
    * without regenerating the map. Cheap enough to call every animation
    * frame; intended for interaction feedback such as swelling on press.
+   * A repeated factor is a no-op, so callers may invoke it unconditionally.
    */
   setIntensity(factor: number): void;
   /** Removes the filter's SVG element from the document. */
@@ -94,22 +107,42 @@ function createFilterShell(doc: Document): FilterShell {
   };
 }
 
+/** Which optional passes the pipeline contains. */
+interface PipelineConfig {
+  /** Three per-channel displacements (chromatic aberration) vs one */
+  split: boolean;
+  blur: boolean;
+  saturate: boolean;
+}
+
+function sameConfig(a: PipelineConfig, b: PipelineConfig): boolean {
+  return a.split === b.split && a.blur === b.blur && a.saturate === b.saturate;
+}
+
 interface PipelineHandles {
+  config: PipelineConfig;
   mapImage: SVGElement;
   specularImage: SVGElement;
-  displaceRed: SVGElement;
-  displaceGreen: SVGElement;
-  displaceBlue: SVGElement;
-  blur: SVGElement;
-  saturate: SVGElement;
+  /** [red, green, blue] when split, otherwise a single element */
+  displacements: SVGElement[];
+  blur?: SVGElement;
+  saturate?: SVGElement;
 }
 
 /**
- * Builds the refraction pipeline into `filter`: per-channel displacement
- * (chromatic aberration) -> recombine -> blur -> saturate -> screen-blend
- * the specular rim light.
+ * Builds the refraction pipeline into `filter`, replacing any previous
+ * primitives: displacement (per-channel when aberration is on) -> optional
+ * blur -> optional saturate -> screen-blend the specular rim light. Every
+ * pass an option turns off is a real per-frame raster cost avoided, so the
+ * pipeline only ever contains what the current settings use.
  */
-function buildPipeline(doc: Document, filter: SVGElement): PipelineHandles {
+function buildPipeline(
+  doc: Document,
+  filter: SVGElement,
+  config: PipelineConfig,
+): PipelineHandles {
+  filter.replaceChildren();
+
   const fe = (name: string, attrs: Record<string, string>): SVGElement => {
     const el = doc.createElementNS(SVG_NS, name);
     for (const [key, value] of Object.entries(attrs)) {
@@ -125,73 +158,87 @@ function buildPipeline(doc: Document, filter: SVGElement): PipelineHandles {
   const mapImage = image("map");
   const specularImage = image("specular");
 
-  const displaceChannel = (channel: keyof typeof CHANNEL_MATRICES): SVGElement => {
-    const displaced = fe("feDisplacementMap", {
+  const displace = (result: string): SVGElement =>
+    fe("feDisplacementMap", {
       in: "SourceGraphic",
       in2: "map",
       xChannelSelector: "R",
       yChannelSelector: "G",
-      result: `${channel}-displaced`,
+      result,
     });
-    fe("feColorMatrix", {
-      in: `${channel}-displaced`,
-      type: "matrix",
-      values: CHANNEL_MATRICES[channel],
-      result: channel,
+
+  let displacements: SVGElement[];
+  let current: string;
+
+  if (config.split) {
+    const displaceChannel = (channel: keyof typeof CHANNEL_MATRICES): SVGElement => {
+      const displaced = displace(`${channel}-displaced`);
+      fe("feColorMatrix", {
+        in: `${channel}-displaced`,
+        type: "matrix",
+        values: CHANNEL_MATRICES[channel],
+        result: channel,
+      });
+      return displaced;
+    };
+
+    displacements = [
+      displaceChannel("red"),
+      displaceChannel("green"),
+      displaceChannel("blue"),
+    ];
+
+    fe("feComposite", {
+      in: "red",
+      in2: "green",
+      operator: "arithmetic",
+      k1: "0",
+      k2: "1",
+      k3: "1",
+      k4: "0",
+      result: "red-green",
     });
-    return displaced;
-  };
+    fe("feComposite", {
+      in: "red-green",
+      in2: "blue",
+      operator: "arithmetic",
+      k1: "0",
+      k2: "1",
+      k3: "1",
+      k4: "0",
+      result: "refracted",
+    });
+  } else {
+    displacements = [displace("refracted")];
+  }
+  current = "refracted";
 
-  const displaceRed = displaceChannel("red");
-  const displaceGreen = displaceChannel("green");
-  const displaceBlue = displaceChannel("blue");
+  let blur: SVGElement | undefined;
+  if (config.blur) {
+    blur = fe("feGaussianBlur", {
+      in: current,
+      stdDeviation: "0",
+      result: "softened",
+    });
+    current = "softened";
+  }
 
-  fe("feComposite", {
-    in: "red",
-    in2: "green",
-    operator: "arithmetic",
-    k1: "0",
-    k2: "1",
-    k3: "1",
-    k4: "0",
-    result: "red-green",
-  });
-  fe("feComposite", {
-    in: "red-green",
-    in2: "blue",
-    operator: "arithmetic",
-    k1: "0",
-    k2: "1",
-    k3: "1",
-    k4: "0",
-    result: "refracted",
-  });
-
-  const blur = fe("feGaussianBlur", {
-    in: "refracted",
-    stdDeviation: "0",
-    result: "softened",
-  });
-  const saturate = fe("feColorMatrix", {
-    in: "softened",
-    type: "saturate",
-    values: "1",
-    result: "glass",
-  });
+  let saturate: SVGElement | undefined;
+  if (config.saturate) {
+    saturate = fe("feColorMatrix", {
+      in: current,
+      type: "saturate",
+      values: "1",
+      result: "glass",
+    });
+    current = "glass";
+  }
 
   // The specular rim light, screen-blended so it brightens like a real
   // highlight instead of hazing like an overlay.
-  fe("feBlend", { in: "glass", in2: "specular", mode: "screen" });
+  fe("feBlend", { in: current, in2: "specular", mode: "screen" });
 
-  return {
-    mapImage,
-    specularImage,
-    displaceRed,
-    displaceGreen,
-    displaceBlue,
-    blur,
-    saturate,
-  };
+  return { config, mapImage, specularImage, displacements, blur, saturate };
 }
 
 /** Points an feImage at a canvas's current content, stretched to width x height px. */
@@ -221,7 +268,11 @@ function applyImage(
  */
 export function createGlassFilter(doc: Document = document): GlassFilter {
   const shell = createFilterShell(doc);
-  const pipeline = buildPipeline(doc, shell.filter);
+  let pipeline = buildPipeline(doc, shell.filter, {
+    split: true,
+    blur: true,
+    saturate: true,
+  });
   doc.body.appendChild(shell.svg);
 
   const mapCanvas = doc.createElement("canvas");
@@ -235,9 +286,14 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
 
   const applyScales = (): void => {
     const scale = baseScale * intensity;
-    pipeline.displaceRed.setAttribute("scale", String(scale * (1 + aberration)));
-    pipeline.displaceGreen.setAttribute("scale", String(scale));
-    pipeline.displaceBlue.setAttribute("scale", String(scale * (1 - aberration)));
+    const [red, green, blue] = pipeline.displacements;
+    if (pipeline.config.split) {
+      red.setAttribute("scale", String(scale * (1 + aberration)));
+      green.setAttribute("scale", String(scale));
+      blue.setAttribute("scale", String(scale * (1 - aberration)));
+    } else {
+      red.setAttribute("scale", String(scale));
+    }
   };
 
   return {
@@ -250,6 +306,15 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       // reliably repaint when an already-referenced filter's primitives
       // are mutated in place.
       shell.cycle();
+
+      const config: PipelineConfig = {
+        split: options.aberration > ABERRATION_EPSILON,
+        blur: options.blur > 0,
+        saturate: Math.abs(options.saturation - 1) > SATURATION_EPSILON,
+      };
+      if (!sameConfig(config, pipeline.config)) {
+        pipeline = buildPipeline(doc, shell.filter, config);
+      }
 
       // Encode the field so `depth` px spans the full channel range, giving
       // the 8-bit map maximum precision. Generate at device resolution
@@ -277,11 +342,16 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       aberration = options.aberration;
       applyScales();
 
-      pipeline.blur.setAttribute("stdDeviation", String(options.blur));
-      pipeline.saturate.setAttribute("values", String(options.saturation));
+      pipeline.blur?.setAttribute("stdDeviation", String(options.blur));
+      pipeline.saturate?.setAttribute("values", String(options.saturation));
     },
 
     setIntensity(factor: number): void {
+      // Skipping repeats matters: a same-value attribute write still
+      // invalidates the filter and forces a re-raster of the lens.
+      if (factor === intensity) {
+        return;
+      }
       intensity = factor;
       applyScales();
     },

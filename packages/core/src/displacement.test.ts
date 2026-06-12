@@ -34,7 +34,7 @@ describe("computeDisplacementField", () => {
 
   it("is mirror-symmetric across the vertical center line", () => {
     const field = computeDisplacementField(baseParams);
-    const { width, height } = field;
+    const { width } = field;
     const py = 10;
     const left = 5;
     const right = width - 1 - left;
@@ -42,6 +42,29 @@ describe("computeDisplacementField", () => {
     const iRight = py * width + right;
     expect(field.dx[iRight]).toBeCloseTo(-field.dx[iLeft], 4);
     expect(field.dy[iRight]).toBeCloseTo(field.dy[iLeft], 4);
+  });
+
+  it("is mirror-symmetric across the horizontal center line", () => {
+    const field = computeDisplacementField(baseParams);
+    const { width, height } = field;
+    const px = 5;
+    const top = 10;
+    const bottom = height - 1 - top;
+    const iTop = top * width + px;
+    const iBottom = bottom * width + px;
+    expect(field.dx[iBottom]).toBeCloseTo(field.dx[iTop], 4);
+    expect(field.dy[iBottom]).toBeCloseTo(-field.dy[iTop], 4);
+  });
+
+  it("points inward at the edge midpoints with no splay", () => {
+    const field = computeDisplacementField(baseParams);
+    const { width, height } = field;
+    const midY = Math.floor(height / 2);
+    const midX = Math.floor(width / 2);
+    const leftEdge = midY * width + 1;
+    const topEdge = 1 * width + midX;
+    expect(field.dx[leftEdge]).toBeGreaterThan(0);
+    expect(field.dy[topEdge]).toBeGreaterThan(0);
   });
 
   it("scales sample count with resolution while keeping values in CSS px", () => {

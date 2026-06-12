@@ -1,9 +1,7 @@
-import { roundedRectSDF } from "./sdf";
+import { sampleRoundedRect, type RoundedRectSample } from "./sdf";
 import { clamp, smoothstep } from "./math";
 import type { LensParams } from "./types";
 
-/** Step used for the numeric gradient of the rounded-rect SDF, in pixels */
-const GRADIENT_EPSILON = 0.5;
 /** Tightness of the directional highlight; higher means a narrower hot spot */
 const SPECULAR_EXPONENT = 10;
 /** Relative strength of the counter-highlight on the edge facing away */
@@ -25,9 +23,13 @@ export interface SpecularOptions {
  * never drift apart.
  */
 export function specularIntensity(facing: number, mask: number, strength: number): number {
-  const main = Math.max(facing, 0) ** SPECULAR_EXPONENT;
-  const counter = Math.max(-facing, 0) ** SPECULAR_EXPONENT * COUNTER_LIGHT;
-  return clamp(mask * strength * (AMBIENT_RING + main + counter), 0, 1);
+  // facing > 0 and facing < 0 are mutually exclusive, so only one of the
+  // main and counter highlights is ever nonzero; compute just that one.
+  const lit =
+    facing >= 0
+      ? facing ** SPECULAR_EXPONENT
+      : (-facing) ** SPECULAR_EXPONENT * COUNTER_LIGHT;
+  return clamp(mask * strength * (AMBIENT_RING + lit), 0, 1);
 }
 
 /**
@@ -42,6 +44,10 @@ export function specularIntensity(facing: number, mask: number, strength: number
  * follows any shape the SDF describes.
  *
  * `resolution` is samples per CSS pixel, as in `computeDisplacementField`.
+ *
+ * The mask and normal are symmetric across both axes, so they are computed
+ * for the top-left quadrant only; the light-dependent part is re-evaluated
+ * per mirrored pixel with the normal's components sign-flipped.
  */
 export function renderSpecularToCanvas(
   canvas: HTMLCanvasElement,
@@ -76,12 +82,31 @@ export function renderSpecularToCanvas(
   const image = ctx.createImageData(outWidth, outHeight);
   const data = image.data;
 
-  for (let py = 0; py < outHeight; py++) {
-    const y = (py + 0.5) / resolution - halfH;
-    for (let px = 0; px < outWidth; px++) {
-      const x = (px + 0.5) / resolution - halfW;
+  // Sample at the canvas's own center so mirrored pixels sit at exactly
+  // negated coordinates (see computeDisplacementField).
+  const centerX = outWidth / 2;
+  const centerY = outHeight / 2;
+  const quadrantW = (outWidth + 1) >> 1;
+  const quadrantH = (outHeight + 1) >> 1;
 
-      const d = roundedRectSDF(x, y, halfW, halfH, borderRadius);
+  const sample: RoundedRectSample = { distance: 0, normalX: 0, normalY: 0 };
+
+  const write = (i: number, alpha: number): void => {
+    const o = i * 4;
+    data[o] = 255;
+    data[o + 1] = 255;
+    data[o + 2] = 255;
+    data[o + 3] = Math.round(alpha * 255);
+  };
+
+  for (let py = 0; py < quadrantH; py++) {
+    const y = (py + 0.5 - centerY) / resolution;
+    const my = outHeight - 1 - py;
+    for (let px = 0; px < quadrantW; px++) {
+      const x = (px + 0.5 - centerX) / resolution;
+
+      sampleRoundedRect(x, y, halfW, halfH, borderRadius, sample);
+      const d = sample.distance;
       if (d > 0) {
         continue; // outside the lens; the frame clips this away regardless
       }
@@ -92,26 +117,14 @@ export function renderSpecularToCanvas(
         continue;
       }
 
-      // Numeric gradient of the SDF gives the outward surface normal.
-      const gx =
-        (roundedRectSDF(x + GRADIENT_EPSILON, y, halfW, halfH, borderRadius) -
-          roundedRectSDF(x - GRADIENT_EPSILON, y, halfW, halfH, borderRadius)) /
-        (2 * GRADIENT_EPSILON);
-      const gy =
-        (roundedRectSDF(x, y + GRADIENT_EPSILON, halfW, halfH, borderRadius) -
-          roundedRectSDF(x, y - GRADIENT_EPSILON, halfW, halfH, borderRadius)) /
-        (2 * GRADIENT_EPSILON);
-      const gLen = Math.hypot(gx, gy) || 1;
-      const normalX = gx / gLen;
-      const normalY = gy / gLen;
+      const fx = sample.normalX * lightX;
+      const fy = sample.normalY * lightY;
+      const mx = outWidth - 1 - px;
 
-      const facing = normalX * lightX + normalY * lightY;
-      const alpha = specularIntensity(facing, mask, strength);
-      const i = (py * outWidth + px) * 4;
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = Math.round(alpha * 255);
+      write(py * outWidth + px, specularIntensity(fx + fy, mask, strength));
+      write(py * outWidth + mx, specularIntensity(-fx + fy, mask, strength));
+      write(my * outWidth + px, specularIntensity(fx - fy, mask, strength));
+      write(my * outWidth + mx, specularIntensity(-fx - fy, mask, strength));
     }
   }
 

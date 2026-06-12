@@ -1,5 +1,6 @@
 export type { LensParams, DisplacementField, DisplacementMapOptions } from "./types";
-export { roundedRectSDF } from "./sdf";
+export type { RoundedRectSample } from "./sdf";
+export { roundedRectSDF, sampleRoundedRect } from "./sdf";
 export { computeDisplacementField } from "./displacement";
 export { displacementFieldToPixels, renderDisplacementMapToCanvas } from "./map";
 export type { SpecularOptions } from "./specular";
