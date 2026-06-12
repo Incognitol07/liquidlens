@@ -273,7 +273,7 @@ const MENU_OPTIONS = {
   depth: 24,
   curvature: 0.40,
   splay: 0.59,
-  aberration: 0.03,
+  aberration: 0,
   blur: 4.0,
   saturation: 1.15,
   lightAngle: 0,
