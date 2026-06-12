@@ -1,4 +1,5 @@
 import { createGlassFilter } from "./filter";
+import { presets } from "./presets";
 
 const LENS_MARKER = "data-caustics-lens";
 
@@ -21,6 +22,13 @@ export interface LiquidLensOptions {
   specular?: number;
   /** Corner radius in px; defaults to the frame's computed border-radius */
   borderRadius?: number;
+  /**
+   * When true (the default), honors the OS "prefers reduced motion"
+   * setting by pinning `setIntensity` at 1, so press-swell and similar
+   * per-frame feedback goes still for users who asked for less motion.
+   * The static refraction itself is unaffected — it is not motion.
+   */
+  respectReducedMotion?: boolean;
 }
 
 export interface LiquidLens {
@@ -47,7 +55,8 @@ export interface LiquidLens {
   /**
    * Scales the refraction strength relative to the configured depth without
    * regenerating the map. Cheap; intended for per-frame interaction
-   * feedback such as swelling on press.
+   * feedback such as swelling on press. Ignored while the user prefers
+   * reduced motion (unless `respectReducedMotion` is false).
    */
   setIntensity(factor: number): void;
   /** Removes everything the lens added to the document. */
@@ -55,14 +64,8 @@ export interface LiquidLens {
 }
 
 const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius">> = {
-  depth: 24,
-  curvature: 0.4,
-  splay: 0.59,
-  aberration: 0.05,
-  blur: 0.2,
-  saturation: 1.15,
-  lightAngle: 0,
-  specular: 1,
+  ...presets.full,
+  respectReducedMotion: true,
 };
 
 /**
@@ -97,6 +100,20 @@ export function createLiquidLens(
   frame.style.overflow = "hidden";
 
   const glassFilter = createGlassFilter(doc);
+
+  // Reduced-motion handling: while active, intensity stays pinned at 1 so
+  // press-swell feedback goes still. The listener also resets a lens that
+  // was mid-swell when the OS setting flipped.
+  const reducedMotion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const motionSuppressed = (): boolean =>
+    settings.respectReducedMotion && reducedMotion?.matches === true;
+
+  function setIntensity(factor: number): void {
+    glassFilter.setIntensity(motionSuppressed() ? 1 : factor);
+  }
+
+  const onMotionPreferenceChange = (): void => setIntensity(1);
+  reducedMotion?.addEventListener?.("change", onMotionPreferenceChange);
 
   // Refraction layer: holds the backdrop clone and applies the filter to it.
   // The shine layer must stay outside this element so the highlight is not
@@ -152,6 +169,12 @@ export function createLiquidLens(
   function update(next: LiquidLensOptions = {}, resolution?: number): void {
     settings = { ...settings, ...next };
 
+    // An update may have just turned respectReducedMotion on; re-pin a
+    // lens that was left mid-swell (no-op otherwise).
+    if (motionSuppressed()) {
+      glassFilter.setIntensity(1);
+    }
+
     const borderRadius =
       settings.borderRadius ??
       (Number.parseFloat(getComputedStyle(frame).borderTopLeftRadius) || 0);
@@ -202,8 +225,9 @@ export function createLiquidLens(
     update,
     sync,
     syncTo,
-    setIntensity: glassFilter.setIntensity,
+    setIntensity,
     destroy(): void {
+      reducedMotion?.removeEventListener?.("change", onMotionPreferenceChange);
       resizeObserver?.disconnect();
       refraction.remove();
       glassFilter.destroy();

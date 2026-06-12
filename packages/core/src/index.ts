@@ -9,3 +9,5 @@ export type { GlassFilter, GlassFilterOptions, GlassEffectOptions } from "./filt
 export { createGlassFilter } from "./filter";
 export type { LiquidLens, LiquidLensOptions } from "./lens";
 export { createLiquidLens } from "./lens";
+export type { LensPreset, LensPresetName } from "./presets";
+export { presets } from "./presets";

@@ -35,7 +35,10 @@ export interface GlassEffectOptions {
   saturation: number;
   /** Light direction in degrees: 0 lights the top edge, 90 the right edge */
   lightAngle: number;
-  /** 0..1: strength of the specular rim highlight */
+  /**
+   * 0..1: strength of the specular rim highlight.
+   * 0 removes the highlight image and blend pass from the filter entirely.
+   */
   specular: number;
 }
 
@@ -113,16 +116,22 @@ interface PipelineConfig {
   split: boolean;
   blur: boolean;
   saturate: boolean;
+  specular: boolean;
 }
 
 function sameConfig(a: PipelineConfig, b: PipelineConfig): boolean {
-  return a.split === b.split && a.blur === b.blur && a.saturate === b.saturate;
+  return (
+    a.split === b.split &&
+    a.blur === b.blur &&
+    a.saturate === b.saturate &&
+    a.specular === b.specular
+  );
 }
 
 interface PipelineHandles {
   config: PipelineConfig;
   mapImage: SVGElement;
-  specularImage: SVGElement;
+  specularImage?: SVGElement;
   /** [red, green, blue] when split, otherwise a single element */
   displacements: SVGElement[];
   blur?: SVGElement;
@@ -156,7 +165,7 @@ function buildPipeline(
     fe("feImage", { x: "0", y: "0", preserveAspectRatio: "none", result });
 
   const mapImage = image("map");
-  const specularImage = image("specular");
+  const specularImage = config.specular ? image("specular") : undefined;
 
   const displace = (result: string): SVGElement =>
     fe("feDisplacementMap", {
@@ -235,8 +244,11 @@ function buildPipeline(
   }
 
   // The specular rim light, screen-blended so it brightens like a real
-  // highlight instead of hazing like an overlay.
-  fe("feBlend", { in: current, in2: "specular", mode: "screen" });
+  // highlight instead of hazing like an overlay. When omitted, the last
+  // primitive above is the filter's output.
+  if (config.specular) {
+    fe("feBlend", { in: current, in2: "specular", mode: "screen" });
+  }
 
   return { config, mapImage, specularImage, displacements, blur, saturate };
 }
@@ -272,6 +284,7 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
     split: true,
     blur: true,
     saturate: true,
+    specular: true,
   });
   doc.body.appendChild(shell.svg);
 
@@ -311,6 +324,7 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
         split: options.aberration > ABERRATION_EPSILON,
         blur: options.blur > 0,
         saturate: Math.abs(options.saturation - 1) > SATURATION_EPSILON,
+        specular: options.specular > 0,
       };
       if (!sameConfig(config, pipeline.config)) {
         pipeline = buildPipeline(doc, shell.filter, config);
@@ -328,13 +342,15 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       renderDisplacementMapToCanvas(mapCanvas, field, { scale: depth });
       applyImage(pipeline.mapImage, mapCanvas, options.width, options.height);
 
-      renderSpecularToCanvas(
-        specularCanvas,
-        options,
-        { lightAngle: options.lightAngle, strength: options.specular },
-        resolution,
-      );
-      applyImage(pipeline.specularImage, specularCanvas, options.width, options.height);
+      if (pipeline.specularImage) {
+        renderSpecularToCanvas(
+          specularCanvas,
+          options,
+          { lightAngle: options.lightAngle, strength: options.specular },
+          resolution,
+        );
+        applyImage(pipeline.specularImage, specularCanvas, options.width, options.height);
+      }
 
       // feDisplacementMap shifts by scale * (channel - 0.5), so scale =
       // 2 * depth recovers the encoded pixel displacement.

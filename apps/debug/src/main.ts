@@ -1,8 +1,10 @@
 import {
   computeDisplacementField,
   createLiquidLens,
+  presets,
   renderDisplacementMapToCanvas,
   renderSpecularToCanvas,
+  type LensPresetName,
   type LiquidLens,
   type LiquidLensOptions,
 } from "caustics";
@@ -70,6 +72,40 @@ function refreshLabels(): void {
     const fraction = max > min ? (value - min) / (max - min) : 0;
     input.style.setProperty("--p", `${fraction * 100}%`);
   }
+  refreshPresetHighlight();
+}
+
+// ---------------------------------------------------------------------------
+// Presets: each button loads a named option set from the library; the active
+// state is derived from the sliders, so it lights up whenever the current
+// values happen to equal a preset and clears as soon as one is hand-tuned.
+
+const presetButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>(".preset-btn"),
+);
+
+function matchesPreset(name: LensPresetName): boolean {
+  return Object.entries(presets[name]).every(
+    ([id, value]) => Math.abs(num(id as ControlId) - value) < 1e-6,
+  );
+}
+
+function refreshPresetHighlight(): void {
+  for (const button of presetButtons) {
+    const name = button.dataset.preset as LensPresetName;
+    button.classList.toggle("is-active", matchesPreset(name));
+  }
+}
+
+for (const button of presetButtons) {
+  button.addEventListener("click", () => {
+    const preset = presets[button.dataset.preset as LensPresetName];
+    for (const [id, value] of Object.entries(preset)) {
+      const input = inputs[id as ControlId];
+      input.value = String(value);
+      input.dispatchEvent(new Event("input"));
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +157,18 @@ const appliedGeom = { w: geomW.value, h: geomH.value, r: geomR.value };
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
+// Surface the OS preference in the panel header; the lens library pins its
+// intensity on its own, this just makes the state visible while debugging.
+const reducedMotionTag = document.getElementById("reduced-motion-tag") as HTMLElement;
+function refreshReducedMotionTag(): void {
+  reducedMotionTag.hidden = !reducedMotion.matches;
+}
+reducedMotion.addEventListener("change", () => {
+  refreshReducedMotionTag();
+  wake();
+});
+refreshReducedMotionTag();
+
 // Menu springs and variables — snappier stiffness for UI-scale morphs
 const menuW = new Spring(120, 220, 18);
 const menuH = new Spring(36, 220, 18);
@@ -144,6 +192,7 @@ const MENU_OPTIONS = {
 /** Lens options at this instant; borderRadius follows the animated spring. */
 function currentOptions(): Required<LiquidLensOptions> {
   return {
+    respectReducedMotion: true,
     borderRadius: geomR.value,
     depth: num("depth"),
     curvature: num("curvature"),
@@ -456,14 +505,7 @@ const DEFAULT_VALUES = {
   width: 123,
   height: 118,
   borderRadius: 60,
-  depth: 24,
-  curvature: 0.4,
-  splay: 0.59,
-  aberration: 0.05,
-  blur: 0.2,
-  saturation: 1.15,
-  lightAngle: 0,
-  specular: 1,
+  ...presets.full,
 } as const;
 
 optReset.addEventListener("click", (event) => {

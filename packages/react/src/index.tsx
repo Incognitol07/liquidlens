@@ -1,5 +1,7 @@
 import {
   createLiquidLens,
+  presets,
+  type LensPresetName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
 } from "caustics";
@@ -11,7 +13,31 @@ import {
   type RefObject,
 } from "react";
 
-export type { LiquidLensHandle, LiquidLensOptions };
+export type { LiquidLensHandle, LiquidLensOptions, LensPresetName };
+export { presets };
+
+export interface UseLiquidLensOptions extends LiquidLensOptions {
+  /**
+   * Named starting point on the quality/cost curve (see `presets` in
+   * caustics). Any option set explicitly overrides the preset's value.
+   */
+  preset?: LensPresetName;
+}
+
+function resolveOptions({ preset, ...options }: UseLiquidLensOptions): LiquidLensOptions {
+  if (!preset) {
+    return options;
+  }
+  // Explicitly passed options win over the preset, but an absent prop
+  // (undefined) must not shadow the preset's value.
+  const resolved: LiquidLensOptions = { ...presets[preset] };
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) {
+      (resolved as Record<string, unknown>)[key] = value;
+    }
+  }
+  return resolved;
+}
 
 /**
  * Attaches a liquid glass lens to `frameRef`, refracting the content of
@@ -19,12 +45,12 @@ export type { LiquidLensHandle, LiquidLensOptions };
  * option changes are applied through the lens's cheap update path.
  *
  * Returns a ref to the lens handle for imperative per-frame calls
- * (`sync()` after moving the frame, `setIntensity()` for press feedback).
+ * (`syncTo()` after moving the frame, `setIntensity()` for press feedback).
  */
 export function useLiquidLens(
   frameRef: RefObject<HTMLElement | null>,
   backdropRef: RefObject<HTMLElement | null>,
-  options: LiquidLensOptions = {},
+  options: UseLiquidLensOptions = {},
 ): RefObject<LiquidLensHandle | null> {
   const lensRef = useRef<LiquidLensHandle | null>(null);
 
@@ -40,7 +66,7 @@ export function useLiquidLens(
       return;
     }
 
-    const lens = createLiquidLens(frame, backdrop, optionsRef.current);
+    const lens = createLiquidLens(frame, backdrop, resolveOptions(optionsRef.current));
     lensRef.current = lens;
 
     return () => {
@@ -50,8 +76,9 @@ export function useLiquidLens(
   }, [frameRef, backdropRef]);
 
   useEffect(() => {
-    lensRef.current?.update(optionsRef.current);
+    lensRef.current?.update(resolveOptions(optionsRef.current));
   }, [
+    options.preset,
     options.depth,
     options.curvature,
     options.splay,
@@ -61,12 +88,13 @@ export function useLiquidLens(
     options.lightAngle,
     options.specular,
     options.borderRadius,
+    options.respectReducedMotion,
   ]);
 
   return lensRef;
 }
 
-export interface LiquidLensProps extends LiquidLensOptions {
+export interface LiquidLensProps extends UseLiquidLensOptions {
   /** Ref to the element behind the lens whose content gets refracted. */
   backdropRef: RefObject<HTMLElement | null>;
   className?: string;
@@ -78,7 +106,9 @@ export interface LiquidLensProps extends LiquidLensOptions {
 /**
  * A div that becomes a liquid glass lens over the element in `backdropRef`.
  * Position and size it like any other element (it must visually overlap the
- * backdrop); pass lens options as props.
+ * backdrop); pass lens options as props, optionally starting from a preset:
+ *
+ *     <LiquidLens backdropRef={bg} preset="lean" depth={30} />
  */
 export function LiquidLens({
   backdropRef,

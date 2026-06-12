@@ -226,6 +226,46 @@
       }
 
       /* ----------------------------------------------------------------- */
+      /* Preset buttons                                                     */
+
+      .presets {
+        display: flex;
+        gap: 4px;
+      }
+
+      .preset-btn {
+        flex: 1;
+        height: 22px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--text-dim);
+        font-family: inherit;
+        font-size: 10.5px;
+        cursor: pointer;
+        transition:
+          color 120ms ease,
+          border-color 120ms ease,
+          background 120ms ease;
+      }
+
+      .preset-btn:hover {
+        color: var(--text);
+        border-color: #2d2d36;
+      }
+
+      .preset-btn:focus-visible {
+        outline: 1px solid var(--text-faint);
+        outline-offset: 1px;
+      }
+
+      .preset-btn.is-active {
+        color: var(--text);
+        border-color: var(--text-faint);
+        background: var(--bg);
+      }
+
+      /* ----------------------------------------------------------------- */
       /* Text input + backdrop swatches                                     */
 
       input[type="text"] {
@@ -533,6 +573,7 @@
       <header id="panel-header">
         <span class="wordmark">caustics</span>
         <span class="tag">debug</span>
+        <span class="tag" id="reduced-motion-tag" hidden title="The OS asks for reduced motion; springs snap and press swell is off">reduced motion</span>
       </header>
 
       <section class="group">
@@ -556,6 +597,14 @@
 
       <section class="group">
         <h2>Optics</h2>
+        <div class="control">
+          <span class="control-name">preset</span>
+          <div class="presets control-wide" role="radiogroup" aria-label="Effect preset">
+            <button class="preset-btn" data-preset="full" title="Everything on: aberration, blur, saturation, specular">full</button>
+            <button class="preset-btn" data-preset="lean" title="No aberration or blur — the cheap filter chain">lean</button>
+            <button class="preset-btn" data-preset="minimal" title="Refraction only — single displacement pass">minimal</button>
+          </div>
+        </div>
         <div class="control">
           <label class="control-name" for="depth">depth</label>
           <input id="depth" type="range" min="0" max="60" step="1" value="24" />
