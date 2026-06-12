@@ -1,84 +1,187 @@
 https://github.com/user-attachments/assets/87d1479b-1117-4a65-9683-1850960a5403
 
-
 # caustics
 
-Liquid glass for the web: real refraction from displacement maps, not a blur and a white border. Caustics are the patterns light forms after bending through water or glass, which is what this library computes.
+Liquid glass for the web.
 
-## Works in your browser
+Caustics makes a normal HTML element feel like a real piece of glass. Put it
+over a hero, toolbar, card, menu, dock, or draggable orb, and the content
+underneath bends through it with shine, color, and depth.
+
+It is not just a blurred rectangle with a white border. It looks alive.
+
+## Why It Is Mindblowing
+
+Most glass effects on the web fall apart the moment you leave Chromium. They
+usually become a soft blur in Safari or Firefox, which is fine for frosted UI
+but not for liquid glass.
+
+Caustics takes a different path: the same effect works in Chromium, Safari,
+and Firefox.
 
 | Chromium | Safari | Firefox |
 | --- | --- | --- |
 | yes | yes | yes |
 
-One rendering path everywhere: SVG filters applied with plain CSS `filter`, which all three engines agree on. The common alternative, `backdrop-filter` with filter functions, silently degrades to a flat blur outside Chromium. That difference is the reason this library exists.
+You still own the element. Style it, resize it, drag it, morph it, animate it.
+Caustics handles the glass inside.
 
-<!-- side-by-side image goes here: a backdrop-filter library in Safari vs caustics in Safari -->
-
-## Use
+## Install
 
 ```sh
 npm install caustics
 ```
 
-> Not on npm yet. Until the first release, clone this repo and `pnpm build`.
+Not published yet. Until the first release, clone this repo and run:
+
+```sh
+pnpm install
+pnpm build
+```
+
+## Use It
+
+Give Caustics two elements:
+
+- the glass element
+- the thing behind it
 
 ```ts
 import { createLiquidLens } from "caustics";
 
-// A glass dock floating over the page hero. The lens clones the hero's
-// content and bends it, so it works in any browser that can draw SVG.
-const lens = createLiquidLens(
-  document.querySelector<HTMLElement>(".dock")!,
-  document.querySelector<HTMLElement>(".hero")!,
-);
+const glass = document.querySelector<HTMLElement>(".glass")!;
+const backdrop = document.querySelector<HTMLElement>(".hero")!;
 
-// Moving the dock? One cheap call per frame keeps the refraction aligned.
-dock.addEventListener("pointermove", () => lens.sync());
+const lens = createLiquidLens(glass, backdrop);
 ```
 
-Scrolling needs no calls at all: the lens watches scroll events itself, so content scrolling under the glass — the backdrop, a feed inside it, or the page — bends live, the way it does in the system version.
+That is enough for a static glass element.
 
-That's the whole integration. Sizing, styling, and positioning of the lens element stay yours; the library only manages what's inside it. `lens.update({ depth: 32 })` changes the optics, `lens.setIntensity(1.5)` swells the glass for press feedback, `lens.destroy()` removes every trace. On devices where the full effect is heavy, start from a named preset instead of tuning blind: `presets.lean` drops the two passes that dominate filter cost, `presets.minimal` reduces the filter to a single displacement pass.
+```html
+<section class="hero">
+  <div class="glass">Menu</div>
+</section>
+```
 
-## How it works
+```css
+.hero {
+  position: relative;
+  min-height: 400px;
+  background: url("/image.jpg") center / cover;
+}
 
-A signed distance field of the lens shape is rendered to a canvas as a displacement map: red encodes horizontal shift, green vertical, strongest at the rim and zero in the flat center. That map drives an SVG `feDisplacementMap` filter applied to a pixel-aligned copy of the backdrop inside the lens, because a filter can only bend an element's own pixels, never what's behind it. The same distance field's surface normals generate the specular rim light and the chromatic aberration, so the refraction, the fringe, and the highlight always describe the same physical surface; that agreement is what makes it read as glass instead of decoration. The map only regenerates when the shape changes, so moving the lens is just a transform update, cheap enough for every frame of a drag.
+.glass {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 180px;
+  height: 72px;
+  border-radius: 24px;
+  overflow: hidden;
+}
+```
 
-## API
+## Move It
 
-`createLiquidLens(frame, backdrop, options?)` returns `{ update, sync, syncTo, setIntensity, destroy }` — `syncTo(offsetX, offsetY)` is the layout-read-free variant of `sync()` for per-frame paths where the frame's position is already known. Options, all optional:
+If the glass moves, tell Caustics where it is after you move it.
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `depth` | `24` | Maximum displacement at the rim, in px |
-| `curvature` | `0.4` | Width of the curved rim relative to the lens size, 0 to 1 |
-| `splay` | `0.59` | Blends displacement direction from edge-normal (0) to radial (1) |
-| `aberration` | `0.05` | Chromatic aberration strength, 0 to 1 |
-| `blur` | `0.2` | Blur in px applied to the refracted content |
-| `saturation` | `1.15` | Saturation multiplier for the refracted content |
-| `lightAngle` | `0` | Light direction in degrees: 0 lights the top edge, 90 the right edge |
-| `specular` | `1` | Strength of the specular rim highlight, 0 to 1 |
-| `borderRadius` | computed style | Corner radius in px, read from the frame if omitted |
-| `respectReducedMotion` | `true` | Stills press-swell feedback while the OS asks for reduced motion |
-| `trackScroll` | `true` | Keeps the refraction aligned with backdrop, inner, and page scrolling |
+```ts
+glass.style.transform = `translate(${x}px, ${y}px)`;
+lens.sync();
+```
 
-Setting `aberration`, `blur`, or `specular` to `0` (or `saturation` to `1`) removes that pass from the SVG filter entirely rather than running it at zero strength — the named `presets` are just these knobs bundled into `full`, `lean`, and `minimal` tiers.
+For drag animations where you already know the offset, use the cheaper path:
 
-For full control there is also `createGlassFilter()` (builds and manages just the SVG filter; you supply the DOM structure) and the raw math: `roundedRectSDF`, `computeDisplacementField`, `displacementFieldToPixels`, `renderDisplacementMapToCanvas`, `renderSpecularToCanvas`. React bindings live in `@caustics/react` (`useLiquidLens` hook and a `<LiquidLens>` component).
+```ts
+lens.syncTo(x, y);
+```
 
-## Limitations
+## Tune It
 
-- The lens refracts a clone of the backdrop, not the live pixels behind it, so it only works over content you control. Scrolling is mirrored into the clone automatically, but the content itself is a snapshot; recreate the lens if the backdrop's content changes.
-- Content that does not survive `cloneNode` (playing `<video>`, `<canvas>` state, iframes) appears frozen or blank inside the lens.
+Start simple:
+
+```ts
+createLiquidLens(glass, backdrop, {
+  depth: 30,
+  specular: 0.9,
+  saturation: 1.2,
+});
+```
+
+Useful knobs:
+
+| Option | What it feels like |
+| --- | --- |
+| `depth` | More or less bend |
+| `specular` | Stronger or softer shine |
+| `saturation` | Richer or calmer color |
+| `blur` | Softer or sharper glass |
+| `aberration` | More or less color fringe |
+| `borderRadius` | Match custom rounded shapes |
+
+Or start from a preset:
+
+```ts
+import { createLiquidLens, presets } from "caustics";
+
+createLiquidLens(glass, backdrop, {
+  ...presets.lean,
+  depth: 28,
+});
+```
+
+Presets:
+
+- `full`: the prettiest version
+- `lean`: still glassy, cheaper to run
+- `minimal`: the simplest effect that still bends
+
+## Press, Morph, Animate
+
+Use `setIntensity()` for touch feedback:
+
+```ts
+glass.addEventListener("pointerdown", () => lens.setIntensity(1.5));
+glass.addEventListener("pointerup", () => lens.setIntensity(1));
+```
+
+If the element changes size or radius, update the lens:
+
+```ts
+lens.update({
+  borderRadius: 32,
+});
+```
+
+## React
+
+React bindings live in `@caustics/react`.
+
+```tsx
+import { LiquidLens } from "@caustics/react";
+
+<LiquidLens backdropRef={heroRef} preset="lean" depth={30}>
+  Menu
+</LiquidLens>;
+```
+
+## A Few Honest Notes
+
+- Caustics works over content you control.
+- If the backdrop content changes a lot, recreate the lens.
+- Video, canvas, and iframes may not appear live inside the glass.
 
 ## Development
 
 ```sh
 pnpm install
-pnpm build                          # build all packages
-pnpm test                           # run unit tests
-pnpm --filter @caustics/debug dev   # interactive playground at localhost:5173
+pnpm build
+pnpm test
+pnpm --filter @caustics/debug dev
 ```
 
-pnpm workspace: `packages/core` is the zero-dependency library (`caustics`), `packages/react` the React bindings, `apps/debug` a playground with a slider for every parameter and live views of the generated displacement and specular maps.
+Workspace:
+
+- `packages/core`: the main library
+- `packages/react`: React bindings
+- `apps/debug`: playground for tuning the effect
