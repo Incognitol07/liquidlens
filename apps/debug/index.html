@@ -623,26 +623,17 @@
       #previews canvas {
         display: block;
         image-rendering: pixelated;
-        border: 1px solid var(--border);
+        border: 1px solid #1f1f26;
         border-radius: 8px;
-        background: var(--panel);
+        background: #111116;
         max-width: 100%;
         height: auto;
-      }
-
-      #previews #specular-preview {
-        border-color: #1f1f26;
-        background: #111116;
-      }
-
-      #specular-preview + .map-label {
-        color: #595964;
       }
 
       .map-label {
         font-family: var(--mono);
         font-size: 10.5px;
-        color: var(--text-faint);
+        color: #595964;
         margin-top: 8px;
         text-align: center;
       }
@@ -973,12 +964,13 @@
           padding: 0 8px;
           width: 100%;
           box-sizing: border-box;
+          justify-content: center;
         }
 
         #previews > div {
-          flex: 1 1 calc(50% - 6px);
-          min-width: 100px;
-          max-width: 100%;
+          flex: 0 1 120px;
+          min-width: 80px;
+          max-width: 120px;
         }
 
         #previews canvas {
@@ -1030,17 +1022,6 @@
 
         .backdrop::after {
           font-size: clamp(22px, 9vw, 48px);
-        }
-
-        #previews {
-          flex-direction: column;
-          align-items: center;
-          gap: 10px;
-        }
-
-        #previews > div {
-          max-width: 90%;
-          width: 100%;
         }
 
         .map-label {
