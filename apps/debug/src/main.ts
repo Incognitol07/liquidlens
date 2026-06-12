@@ -270,14 +270,14 @@ function menuRadius(): number {
 }
 
 const MENU_OPTIONS = {
-  depth: 18,
-  curvature: 0.42,
-  splay: 0.58,
-  aberration: 0,
-  blur: 0.4,
-  saturation: 1.18,
+  depth: 24,
+  curvature: 0.40,
+  splay: 0.59,
+  aberration: 0.03,
+  blur: 4.0,
+  saturation: 1.15,
   lightAngle: 0,
-  specular: 0.9,
+  specular: 1.00,
 };
 
 /** Lens options at this instant; borderRadius follows the animated spring. */
