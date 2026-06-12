@@ -94,12 +94,6 @@ function createFilterShell(doc: Document): FilterShell {
   const filter = doc.createElementNS(SVG_NS, "filter");
   filter.setAttribute("id", id);
   filter.setAttribute("color-interpolation-filters", "sRGB");
-  // Expand the filter region to prevent clipping of large blurs and refractions
-  // when the element height/width is small (e.g. during a spring squish/morph).
-  filter.setAttribute("x", "-30%");
-  filter.setAttribute("y", "-50%");
-  filter.setAttribute("width", "160%");
-  filter.setAttribute("height", "200%");
   svg.appendChild(filter);
 
   return {
@@ -338,6 +332,18 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       if (isWebKit) {
         shell.cycle();
       }
+
+      // Configure absolute bounding box margins from first principles:
+      // The filter needs enough room to accommodate the maximum refraction
+      // displacement (depth) plus the spread of the blur (3 * stdDeviation).
+      // We use absolute coordinates (userSpaceOnUse) to optimize CPU raster
+      // limits on large elements while preventing clipping on small elements.
+      const margin = Math.ceil(options.depth + 3 * options.blur + 2);
+      shell.filter.setAttribute("filterUnits", "userSpaceOnUse");
+      shell.filter.setAttribute("x", String(-margin));
+      shell.filter.setAttribute("y", String(-margin));
+      shell.filter.setAttribute("width", String(options.width + 2 * margin));
+      shell.filter.setAttribute("height", String(options.height + 2 * margin));
 
       const config: PipelineConfig = {
         split: options.aberration > ABERRATION_EPSILON,
