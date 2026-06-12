@@ -336,14 +336,18 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       // Configure absolute bounding box margins from first principles:
       // The filter needs enough room to accommodate the maximum refraction
       // displacement (depth) plus the spread of the blur (3 * stdDeviation).
-      // We use absolute coordinates (userSpaceOnUse) to optimize CPU raster
-      // limits on large elements while preventing clipping on small elements.
-      const margin = Math.ceil(options.depth + 3 * options.blur + 2);
-      shell.filter.setAttribute("filterUnits", "userSpaceOnUse");
-      shell.filter.setAttribute("x", String(-margin));
-      shell.filter.setAttribute("y", String(-margin));
-      shell.filter.setAttribute("width", String(options.width + 2 * margin));
-      shell.filter.setAttribute("height", String(options.height + 2 * margin));
+      //
+      // We convert this absolute pixel padding to percentages of the current element size.
+      // Using filterUnits="objectBoundingBox" avoids browser engine bugs with feImage alignment,
+      // while dynamically adjusting the percentages guarantees a constant absolute pixel padding.
+      const paddingPx = Math.ceil(options.depth + 3 * options.blur + 2);
+      const pctX = (paddingPx / options.width) * 100;
+      const pctY = (paddingPx / options.height) * 100;
+      shell.filter.setAttribute("filterUnits", "objectBoundingBox");
+      shell.filter.setAttribute("x", `${-pctX}%`);
+      shell.filter.setAttribute("y", `${-pctY}%`);
+      shell.filter.setAttribute("width", `${100 + 2 * pctX}%`);
+      shell.filter.setAttribute("height", `${100 + 2 * pctY}%`);
 
       const config: PipelineConfig = {
         split: options.aberration > ABERRATION_EPSILON,
