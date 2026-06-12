@@ -333,6 +333,7 @@ function tick(now: number): void {
     lensEl.style.height = `${geomH.value}px`;
     lensEl.style.borderRadius = `${geomR.value}px`;
     lens?.update(currentOptions(), 0.5);
+    refreshPreviews(0.5);
     needsFinalPass = true;
   }
 
@@ -411,7 +412,7 @@ function wake(): void {
 // ---------------------------------------------------------------------------
 // Map previews
 
-function refreshPreviews(): void {
+function refreshPreviews(resolution = 1): void {
   const options = currentOptions();
   const shape = {
     width: Math.round(geomW.value),
@@ -422,15 +423,15 @@ function refreshPreviews(): void {
     splay: options.splay,
   };
 
-  const field = computeDisplacementField(shape);
+  const field = computeDisplacementField(shape, resolution);
   renderDisplacementMapToCanvas(mapCanvas, field, { scale: Math.max(options.depth, 1) });
-  mapCanvas.style.width = `${field.width}px`;
-  mapCanvas.style.height = `${field.height}px`;
+  mapCanvas.style.width = `${shape.width}px`;
+  mapCanvas.style.height = `${shape.height}px`;
 
   renderSpecularToCanvas(specularCanvas, shape, {
     lightAngle: options.lightAngle,
     strength: options.specular,
-  });
+  }, resolution);
   specularCanvas.style.width = `${shape.width}px`;
   specularCanvas.style.height = `${shape.height}px`;
 }
