@@ -169,14 +169,35 @@ reducedMotion.addEventListener("change", () => {
 });
 refreshReducedMotionTag();
 
-// Menu springs and variables — snappier stiffness for UI-scale morphs
-const menuW = new Spring(120, 220, 18);
-const menuH = new Spring(36, 220, 18);
-const menuR = new Spring(18, 220, 18);
+// Menu springs — the width leads and the height blooms a beat behind it,
+// so the shape distorts liquidly en route instead of scaling between two
+// rectangles in lockstep. The radius is near-critically damped because a
+// radius overshoot reads as the corners sharpening, not as bounce.
+const MENU_COLLAPSED = { w: 120, h: 36, r: 18 };
+const MENU_EXPANDED = { w: 200, h: 80, r: 16 };
+const menuW = new Spring(MENU_COLLAPSED.w, 260, 15);
+const menuH = new Spring(MENU_COLLAPSED.h, 170, 12);
+const menuR = new Spring(MENU_COLLAPSED.r, 220, 29);
+// Press feedback: squishes the glass and swells its refraction while the
+// pointer is down, so the release winds up into the morph.
+const menuPress = new Spring(0, 550, 14);
 let menuExpanded = false;
 let menuLens: LiquidLens | undefined;
 const menuApplied = { w: menuW.value, h: menuH.value, r: menuR.value };
 let menuNeedsFinalPass = false;
+
+const menuEl = document.getElementById("liquid-menu") as HTMLElement;
+const menuCollapsedContent = menuEl.querySelector(
+  ".menu-collapsed-content",
+) as HTMLElement;
+const menuExpandedContent = menuEl.querySelector(
+  ".menu-expanded-content",
+) as HTMLElement;
+
+/** Capsule clamp: the pill must not grow corners while the height is small. */
+function menuRadius(): number {
+  return Math.min(menuR.value, menuH.value / 2);
+}
 
 const MENU_OPTIONS = {
   depth: 10,
@@ -238,11 +259,23 @@ function tick(now: number): void {
   geomH.target = num("height");
   geomR.target = num("borderRadius");
 
-  menuW.target = menuExpanded ? 240 : 120;
-  menuH.target = menuExpanded ? 88 : 36;
-  menuR.target = menuExpanded ? 12 : 18;
+  const menuTarget = menuExpanded ? MENU_EXPANDED : MENU_COLLAPSED;
+  menuW.target = menuTarget.w;
+  menuH.target = menuTarget.h;
+  menuR.target = menuTarget.r;
 
-  const springs = [springX, springY, press, geomW, geomH, geomR, menuW, menuH, menuR];
+  const springs = [
+    springX,
+    springY,
+    press,
+    geomW,
+    geomH,
+    geomR,
+    menuW,
+    menuH,
+    menuR,
+    menuPress,
+  ];
   if (reducedMotion.matches) {
     // No wobble, stretch, swell, or morph tween for users who asked for
     // less motion; everything jumps straight to its target.
@@ -278,16 +311,42 @@ function tick(now: number): void {
     menuApplied.w = menuW.value;
     menuApplied.h = menuH.value;
     menuApplied.r = menuR.value;
-    const menuEl = document.getElementById("liquid-menu")!;
     menuEl.style.width = `${menuW.value}px`;
     menuEl.style.height = `${menuH.value}px`;
-    menuEl.style.borderRadius = `${menuR.value}px`;
-    menuLens?.update({ borderRadius: menuR.value }, 0.5);
+    menuEl.style.borderRadius = `${menuRadius()}px`;
+    menuLens?.update({ borderRadius: menuRadius() }, 0.5);
     menuNeedsFinalPass = true;
+
+    // Content rides the morph instead of cross-fading on its own clock:
+    // the label is gone in the first third of the height bloom, the
+    // options arrive over the rest, still moving while the frame settles.
+    const t = clamp(
+      (menuH.value - MENU_COLLAPSED.h) / (MENU_EXPANDED.h - MENU_COLLAPSED.h),
+      0,
+      1,
+    );
+    const labelOut = clamp(t / 0.35, 0, 1);
+    menuCollapsedContent.style.opacity = String(1 - labelOut);
+    menuCollapsedContent.style.transform = `scale(${1 - 0.08 * labelOut})`;
+    const optionsIn = clamp((t - 0.35) / 0.65, 0, 1);
+    menuExpandedContent.style.opacity = String(optionsIn);
+    menuExpandedContent.style.transform = `translateY(${-6 * (1 - optionsIn)}px)`;
   }
 
   applyTransform();
   lens?.setIntensity(1 + 0.9 * press.value);
+
+  // The glass squishes under the pointer and gulps while its shape is in
+  // flux: refraction swells with press and morph speed, relaxing to rest as
+  // the springs settle. setIntensity is a no-op on repeats and pinned by
+  // the lens under reduced motion. The press scale is decorative, so it is
+  // deliberately not fed into the lens's backdrop offset.
+  menuEl.style.transform = `scale(${1 - 0.045 * menuPress.value})`;
+  menuLens?.setIntensity(
+    1 +
+      0.5 * menuPress.value +
+      Math.min(Math.hypot(menuW.velocity, menuH.velocity) * 0.0006, 0.8),
+  );
 
   if (dragging || springs.some((s) => !s.settled)) {
     rafId = requestAnimationFrame(tick);
@@ -300,7 +359,7 @@ function tick(now: number): void {
     }
     if (menuNeedsFinalPass) {
       menuNeedsFinalPass = false;
-      menuLens?.update({ borderRadius: menuR.value });
+      menuLens?.update({ borderRadius: menuRadius() });
     }
     rafId = undefined;
   }
@@ -449,18 +508,31 @@ refreshPreviews();
 // ---------------------------------------------------------------------------
 // Menu Init & Interaction
 
-const menuEl = document.getElementById("liquid-menu")!;
 const controlsEl = document.getElementById("controls")!;
 const optReset = document.getElementById("opt-reset")!;
 const optRandomize = document.getElementById("opt-randomize")!;
 
 menuEl.style.width = `${menuW.value}px`;
 menuEl.style.height = `${menuH.value}px`;
-menuEl.style.borderRadius = `${menuR.value}px`;
+menuEl.style.borderRadius = `${menuRadius()}px`;
 menuLens = createLiquidLens(menuEl, controlsEl, {
   ...MENU_OPTIONS,
-  borderRadius: menuR.value,
+  borderRadius: menuRadius(),
 });
+
+// Press feedback on tap, mirroring the draggable lens: down squishes the
+// glass, release lets it spring back — usually straight into the morph.
+menuEl.addEventListener("pointerdown", () => {
+  menuPress.target = 1;
+  wake();
+});
+const releaseMenuPress = (): void => {
+  menuPress.target = 0;
+  wake();
+};
+menuEl.addEventListener("pointerup", releaseMenuPress);
+menuEl.addEventListener("pointercancel", releaseMenuPress);
+menuEl.addEventListener("pointerleave", releaseMenuPress);
 
 // Toggle menu on click (excluding option clicks)
 menuEl.addEventListener("click", (event) => {
