@@ -39,7 +39,6 @@
         --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
         --backdrop-image: url("https://picsum.photos/id/1018/960/640");
         --backdrop-text: "caustics";
-        --stage-bg: #0a0a0e;
         --stage-menu-text: #000000;
         --stage-menu-shadow: rgba(255, 255, 255, 0.55);
         --stage-menu-row: rgba(255, 255, 255, 0.28);
@@ -479,7 +478,7 @@
         justify-content: center;
         gap: 40px;
         padding: 32px;
-        background: var(--stage-bg);
+        background: var(--bg);
       }
 
       .backdrop {
@@ -539,6 +538,15 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         background: var(--panel);
+      }
+
+      #previews #specular-preview {
+        border-color: #1f1f26;
+        background: #111116;
+      }
+
+      #specular-preview + .map-label {
+        color: #595964;
       }
 
       .map-label {
