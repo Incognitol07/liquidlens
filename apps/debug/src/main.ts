@@ -11,6 +11,35 @@ import {
 import { Spring } from "./spring";
 
 // ---------------------------------------------------------------------------
+// Mobile panel toggle
+//
+// On narrow viewports the controls panel becomes a slide-up bottom sheet.
+// A fixed toggle button shows/hides it and a scrim overlay behind it
+// dismisses on tap.
+
+const panelToggle = document.getElementById("panel-toggle") as HTMLButtonElement;
+const panelScrim = document.getElementById("panel-scrim") as HTMLElement;
+
+function togglePanel(): void {
+  document.body.classList.toggle("panel-open");
+  const isOpen = document.body.classList.contains("panel-open");
+  panelToggle.setAttribute("aria-expanded", String(isOpen));
+}
+
+panelToggle.addEventListener("click", togglePanel);
+panelScrim.addEventListener("click", () => {
+  document.body.classList.remove("panel-open");
+  panelToggle.setAttribute("aria-expanded", "false");
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("panel-open")) {
+    document.body.classList.remove("panel-open");
+    panelToggle.setAttribute("aria-expanded", "false");
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Controls
 
 const ids = [
@@ -425,15 +454,17 @@ function refreshPreviews(resolution = 1): void {
 
   const field = computeDisplacementField(shape, resolution);
   renderDisplacementMapToCanvas(mapCanvas, field, { scale: Math.max(options.depth, 1) });
-  mapCanvas.style.width = `${shape.width}px`;
-  mapCanvas.style.height = `${shape.height}px`;
+  // Use max-width so CSS media queries can shrink the canvas on small screens;
+  // aspect-ratio preserves the shape when height is auto.
+  mapCanvas.style.maxWidth = `${shape.width}px`;
+  mapCanvas.style.aspectRatio = `${shape.width} / ${shape.height}`;
 
   renderSpecularToCanvas(specularCanvas, shape, {
     lightAngle: options.lightAngle,
     strength: options.specular,
   }, resolution);
-  specularCanvas.style.width = `${shape.width}px`;
-  specularCanvas.style.height = `${shape.height}px`;
+  specularCanvas.style.maxWidth = `${shape.width}px`;
+  specularCanvas.style.aspectRatio = `${shape.width} / ${shape.height}`;
 }
 
 // ---------------------------------------------------------------------------

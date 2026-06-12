@@ -76,6 +76,83 @@
       }
 
       /* ----------------------------------------------------------------- */
+      /* Mobile panel toggle button                                         */
+
+      #panel-toggle {
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1001;
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        cursor: pointer;
+        box-shadow:
+          0 4px 16px rgba(0, 0, 0, 0.25),
+          0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+        transition:
+          transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1),
+          box-shadow 200ms ease,
+          background 150ms ease;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      #panel-toggle:hover {
+        transform: scale(1.08);
+        box-shadow:
+          0 6px 24px rgba(0, 0, 0, 0.3),
+          0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+      }
+
+      #panel-toggle:active {
+        transform: scale(0.95);
+      }
+
+      #panel-toggle svg {
+        width: 20px;
+        height: 20px;
+        display: block;
+        margin: auto;
+        transition: transform 250ms ease;
+      }
+
+      #panel-toggle .icon-close {
+        display: none;
+      }
+
+      body.panel-open #panel-toggle .icon-sliders {
+        display: none;
+      }
+
+      body.panel-open #panel-toggle .icon-close {
+        display: block;
+      }
+
+      /* Scrim overlay behind bottom sheet */
+      #panel-scrim {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 999;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+        opacity: 0;
+        transition: opacity 300ms ease;
+        pointer-events: none;
+      }
+
+      body.panel-open #panel-scrim {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* ----------------------------------------------------------------- */
       /* Panel                                                              */
 
       #controls {
@@ -91,6 +168,7 @@
         padding: 0 20px 16px;
         scrollbar-width: thin;
         scrollbar-color: var(--track) transparent;
+        transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       #controls::-webkit-scrollbar {
@@ -479,14 +557,17 @@
         gap: 40px;
         padding: 32px;
         background: var(--bg);
+        min-width: 0;
       }
 
       .backdrop {
         width: 480px;
+        max-width: 100%;
         height: 320px;
         background-image: var(--backdrop-image);
         background-size: cover;
         background-position: center;
+        aspect-ratio: 3 / 2;
       }
 
       .backdrop::after {
@@ -530,6 +611,16 @@
         display: flex;
         gap: 24px;
         align-items: flex-start;
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      #previews > div {
+        min-width: 0;
+        max-width: 100%;
+        flex-shrink: 1;
       }
 
       #previews canvas {
@@ -538,6 +629,8 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         background: var(--panel);
+        max-width: 100%;
+        height: auto;
       }
 
       #previews #specular-preview {
@@ -706,15 +799,275 @@
       }
 
       .menu-opt-btn .opt-icon {
+        flex-shrink: 0;
         width: 14px;
         height: 14px;
         flex-shrink: 0;
         color: currentColor;
         transition: color 120ms ease;
       }
+      /* ----------------------------------------------------------------- */
+      /* Responsive: Tablet                                                 */
+
+      @media (max-width: 1024px) and (min-width: 769px) {
+        body {
+          grid-template-columns: 250px 1fr;
+        }
+
+        #controls {
+          padding: 0 16px 16px;
+        }
+
+        .control {
+          grid-template-columns: 76px 1fr 42px;
+          gap: 8px;
+        }
+
+        .backdrop {
+          width: min(420px, calc(100% - 32px));
+          height: auto;
+        }
+
+        #stage {
+          padding: 24px;
+          gap: 28px;
+        }
+
+        #previews {
+          gap: 16px;
+          padding: 0 16px;
+          box-sizing: border-box;
+        }
+
+        #previews > div {
+          max-width: calc(50% - 8px);
+        }
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Responsive: Mobile                                                  */
+
+      @media (max-width: 768px) {
+        body {
+          display: flex;
+          flex-direction: column;
+          grid-template-columns: none;
+        }
+
+        #panel-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        #panel-scrim {
+          display: block;
+        }
+
+        #controls {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          top: auto;
+          height: auto;
+          max-height: 70vh;
+          z-index: 1000;
+          border-right: none;
+          border-top: 1px solid var(--border);
+          border-radius: 20px 20px 0 0;
+          padding: 0 20px 80px;
+          box-shadow:
+            0 -8px 32px rgba(0, 0, 0, 0.25),
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+          transform: translateY(100%);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        body.panel-open #controls {
+          transform: translateY(0);
+        }
+
+        /* Drag handle indicator */
+        #controls::before {
+          content: "";
+          display: block;
+          width: 36px;
+          height: 4px;
+          border-radius: 2px;
+          background: var(--track);
+          margin: 12px auto 4px;
+          flex-shrink: 0;
+        }
+
+        #panel-header {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: var(--panel);
+          padding: 14px 0 12px;
+        }
+
+        .control {
+          grid-template-columns: 72px 1fr 42px;
+          gap: 8px;
+          min-height: 32px;
+        }
+
+        .control-name {
+          font-size: 12px;
+        }
+
+        input[type="range"] {
+          height: 28px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+          width: 16px;
+          height: 16px;
+          margin-top: -7px;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+          width: 16px;
+          height: 16px;
+        }
+
+        .preset-btn {
+          height: 28px;
+          font-size: 11.5px;
+        }
+
+        .swatch {
+          height: 32px;
+        }
+
+        input[type="text"] {
+          padding: 7px 10px;
+          font-size: 13px;
+        }
+
+        #stage {
+          padding: 20px 16px;
+          gap: 24px;
+          min-height: 100vh;
+          /* Ensure enough room for the floating toggle button */
+          padding-bottom: 80px;
+        }
+
+        .backdrop {
+          width: calc(100% - 16px);
+          height: auto;
+          max-width: 480px;
+        }
+
+        .backdrop::after {
+          font-size: clamp(28px, 10vw, 64px);
+        }
+
+        #previews {
+          gap: 12px;
+          padding: 0 8px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        #previews > div {
+          flex: 1 1 calc(50% - 6px);
+          min-width: 100px;
+          max-width: 100%;
+        }
+
+        #previews canvas {
+          width: 100% !important;
+          max-width: 100%;
+          height: auto !important;
+        }
+
+        .map-label {
+          font-size: 9px;
+          margin-top: 6px;
+          word-break: break-word;
+        }
+
+        #liquid-menu-wrapper {
+          top: 12px;
+          right: 12px;
+        }
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Responsive: Small Mobile                                            */
+
+      @media (max-width: 400px) {
+        #controls {
+          padding: 0 14px 80px;
+        }
+
+        .control {
+          grid-template-columns: 64px 1fr 38px;
+          gap: 6px;
+        }
+
+        .control-name {
+          font-size: 11px;
+        }
+
+        .control-value {
+          font-size: 10px;
+        }
+
+        .group h2 {
+          font-size: 9.5px;
+        }
+
+        #stage {
+          padding: 14px 10px 80px;
+        }
+
+        .backdrop::after {
+          font-size: clamp(22px, 9vw, 48px);
+        }
+
+        #previews {
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+
+        #previews > div {
+          max-width: 90%;
+          width: 100%;
+        }
+
+        .map-label {
+          font-size: 8.5px;
+        }
+      }
     </style>
   </head>
   <body>
+    <!-- Mobile panel toggle -->
+    <button id="panel-toggle" aria-label="Toggle controls panel" title="Toggle controls">
+      <svg class="icon-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="21" x2="4" y2="14"/>
+        <line x1="4" y1="10" x2="4" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12" y2="3"/>
+        <line x1="20" y1="21" x2="20" y2="16"/>
+        <line x1="20" y1="12" x2="20" y2="3"/>
+        <line x1="1" y1="14" x2="7" y2="14"/>
+        <line x1="9" y1="8" x2="15" y2="8"/>
+        <line x1="17" y1="16" x2="23" y2="16"/>
+      </svg>
+      <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div id="panel-scrim"></div>
     <div id="controls">
       <header id="panel-header">
         <span class="wordmark">caustics</span>
