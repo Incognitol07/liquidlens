@@ -231,7 +231,7 @@ reducedMotion.addEventListener("change", () => {
 });
 refreshReducedMotionTag();
 
-// Menu springs — the width leads and the height blooms a beat behind it,
+// Menu springs: the width leads and the height blooms a beat behind it,
 // so the shape distorts liquidly en route instead of scaling between two
 // rectangles in lockstep. The radius is near-critically damped because a
 // radius overshoot reads as the corners sharpening, not as bounce.
@@ -275,7 +275,7 @@ const MENU_OPTIONS = {
 };
 
 /** Lens options at this instant; borderRadius follows the animated spring. */
-function currentOptions(): Required<LiquidLensOptions> {
+function currentOptions(): Required<Omit<LiquidLensOptions, "onReady">> {
   return {
     respectReducedMotion: true,
     trackScroll: true,

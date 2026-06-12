@@ -208,7 +208,7 @@
       }
 
       /* ----------------------------------------------------------------- */
-      /* Theme toggle — Transitions.dev icon swap                           */
+      /* Theme toggle                           */
 
       #theme-toggle {
         margin-left: auto;
@@ -694,7 +694,7 @@
          (heights match MENU_COLLAPSED / MENU_EXPANDED in main.ts), so the
          morphing frame reveals them through its overflow clip instead of
          reflowing them every frame. Opacity and transform are driven from
-         the morph springs in main.ts — no CSS transitions here, or the
+         the morph springs in main.ts; no CSS transitions here, or the
          content would run on its own clock while the frame wobbles. */
       .menu-trigger,
       .menu-expanded-content {
@@ -1114,8 +1114,8 @@
           <span class="control-name">preset</span>
           <div class="presets control-wide" role="radiogroup" aria-label="Effect preset">
             <button class="preset-btn" data-preset="full" title="Everything on: aberration, blur, saturation, specular">full</button>
-            <button class="preset-btn" data-preset="lean" title="No aberration or blur — the cheap filter chain">lean</button>
-            <button class="preset-btn" data-preset="minimal" title="Refraction only — single displacement pass">minimal</button>
+            <button class="preset-btn" data-preset="lean" title="No aberration or blur, the cheap filter chain">lean</button>
+            <button class="preset-btn" data-preset="minimal" title="Refraction only: single displacement pass">minimal</button>
           </div>
         </div>
         <div class="control">

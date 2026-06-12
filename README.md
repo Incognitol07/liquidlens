@@ -41,21 +41,20 @@ pnpm build
 
 ## Use It
 
-Give Caustics two elements:
-
-- the glass element
-- the thing behind it
+Give Caustics your glass element:
 
 ```ts
 import { createLiquidLens } from "caustics";
 
-const glass = document.querySelector<HTMLElement>(".glass")!;
-const backdrop = document.querySelector<HTMLElement>(".hero")!;
-
-const lens = createLiquidLens(glass, backdrop);
+const lens = createLiquidLens(document.querySelector<HTMLElement>(".glass")!);
 ```
 
-That is enough for a static glass element.
+That is enough. Caustics finds the backdrop on its own: the nearest ancestor
+that paints a background. To bend something specific, name it:
+
+```ts
+const lens = createLiquidLens(glass, backdrop);
+```
 
 ```html
 <section class="hero">
@@ -164,9 +163,21 @@ React bindings live in `@caustics/react`.
 ```tsx
 import { LiquidLens } from "@caustics/react";
 
-<LiquidLens backdropRef={heroRef} preset="lean" depth={30}>
+<LiquidLens preset="lean" depth={30}>
   Menu
 </LiquidLens>;
+```
+
+`backdropRef` points the glass at a specific element. `as` renders something
+other than a div. A `ref` hands you the same handle the core API returns:
+
+```tsx
+const lens = useRef<LiquidLensHandle>(null);
+
+<LiquidLens as="nav" ref={lens}>
+  Menu
+</LiquidLens>;
+// lens.current?.setIntensity(1.5) on press
 ```
 
 ## A Few Honest Notes

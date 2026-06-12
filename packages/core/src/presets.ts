@@ -1,11 +1,22 @@
 import type { LiquidLensOptions } from "./lens";
 
-/** A complete set of effect options (geometry- and behavior-independent). */
+/**
+ * A complete set of effect options. Presets carry only the optical knobs;
+ * geometry (`borderRadius`) and behavior (`trackScroll`, `onReady`, ...)
+ * are never part of a preset.
+ */
 export type LensPreset = Readonly<
   Required<
-    Omit<
+    Pick<
       LiquidLensOptions,
-      "borderRadius" | "respectReducedMotion" | "trackScroll" | "trackContent"
+      | "depth"
+      | "curvature"
+      | "splay"
+      | "aberration"
+      | "blur"
+      | "saturation"
+      | "lightAngle"
+      | "specular"
     >
   >
 >;
@@ -35,8 +46,8 @@ export const presets = {
     specular: 1,
   },
   /**
-   * Drops the two passes that dominate filter cost — the per-channel
-   * aberration split and the Gaussian blur — keeping the refraction,
+   * Drops the two passes that dominate filter cost, the per-channel
+   * aberration split and the Gaussian blur, keeping the refraction,
    * saturation, and specular rim. The first preset to try when the full
    * look stutters.
    */

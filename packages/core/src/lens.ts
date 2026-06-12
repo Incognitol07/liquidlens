@@ -26,7 +26,7 @@ export interface LiquidLensOptions {
    * When true (the default), honors the OS "prefers reduced motion"
    * setting by pinning `setIntensity` at 1, so press-swell and similar
    * per-frame feedback goes still for users who asked for less motion.
-   * The static refraction itself is unaffected — it is not motion.
+   * The static refraction itself is unaffected; it is not motion.
    */
   respectReducedMotion?: boolean;
   /**
@@ -45,13 +45,23 @@ export interface LiquidLensOptions {
    * recreate the lens at moments you choose.
    */
   trackContent?: boolean;
+  /**
+   * Called once, after the first refraction has been generated and the
+   * browser has had a frame to paint it. Useful for revealing the frame
+   * only when the glass is ready, or for chaining an entrance animation.
+   */
+  onReady?: () => void;
 }
 
 export interface LiquidLens {
   /**
-   * Merges in new options and regenerates the displacement map.
-   * `resolution` (samples per CSS px) overrides the devicePixelRatio
-   * default; pass ~0.5 when updating every frame of a size morph.
+   * Merges in new options and regenerates the displacement and specular
+   * maps. Every call pays the full map cost regardless of which option
+   * changed, so it is for real changes, not per-frame tweening; per-frame
+   * paths have cheap dedicated calls (`syncTo` for movement, `setIntensity`
+   * for strength). `resolution` (samples per CSS px) overrides the
+   * devicePixelRatio default; pass ~0.5 when updating every frame of a
+   * size morph.
    */
   update(options?: LiquidLensOptions, resolution?: number): void;
   /**
@@ -65,8 +75,8 @@ export interface LiquidLens {
   sync(): void;
   /**
    * Like `sync`, but takes the frame's offset from the backdrop's top-left
-   * corner instead of measuring it, so it never reads layout — safe to call
-   * on every frame of a drag. Decorative rotate/scale transforms on the
+   * corner instead of measuring it, so it never reads layout, making it safe
+   * to call on every frame of a drag. Decorative rotate/scale transforms on the
    * frame should be excluded from the offset.
    */
   syncTo(offsetX: number, offsetY: number): void;
@@ -77,38 +87,151 @@ export interface LiquidLens {
    * reduced motion (unless `respectReducedMotion` is false).
    */
   setIntensity(factor: number): void;
-  /** Removes everything the lens added to the document. */
+  /**
+   * Hides the refraction and suspends its upkeep (scroll mirroring,
+   * content rebuilds) without tearing anything down. Use for a lens that
+   * scrolled off-screen; `resume()` catches up on everything missed.
+   */
+  pause(): void;
+  /** Reverses `pause()` and re-syncs position, scroll, and content. */
+  resume(): void;
+  /** The lens's current options, including defaults, as a read-only snapshot. */
+  readonly options: Readonly<LiquidLensOptions>;
+  /**
+   * Removes everything the lens added to the document and restores the
+   * `position`/`overflow` inline styles the frame had before the lens
+   * changed them.
+   */
   destroy(): void;
 }
 
-const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius">> = {
+const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius" | "onReady">> = {
   ...presets.full,
   respectReducedMotion: true,
   trackScroll: true,
   trackContent: true,
 };
 
+function assertElement(value: unknown, name: string): asserts value is HTMLElement {
+  if (!value || (value as Node).nodeType !== 1) {
+    const got = value === null ? "null" : value === undefined ? "undefined" : typeof value;
+    throw new TypeError(
+      `caustics: ${name} must be an HTMLElement, got ${got}. ` +
+        `If you queried for it, check that the selector matched.`,
+    );
+  }
+}
+
+/** Options expected in 0..1; values outside look broken, not stronger. */
+const UNIT_RANGE_OPTIONS = ["curvature", "splay", "aberration", "specular"] as const;
+const NON_NEGATIVE_OPTIONS = ["depth", "blur", "saturation", "borderRadius"] as const;
+
+function warnOnSuspectOptions(options: LiquidLensOptions): void {
+  for (const key of UNIT_RANGE_OPTIONS) {
+    const value = options[key];
+    if (value !== undefined && (value < 0 || value > 1)) {
+      console.warn(`caustics: ${key} is expected in 0..1, got ${value}; the effect may look broken.`);
+    }
+  }
+  for (const key of NON_NEGATIVE_OPTIONS) {
+    const value = options[key];
+    if (value !== undefined && value < 0) {
+      console.warn(`caustics: ${key} must not be negative, got ${value}.`);
+    }
+  }
+}
+
 /**
- * Turns `frame` into a liquid-glass lens floating over `backdrop`.
+ * Picks a backdrop for a frame when the caller did not name one: the
+ * nearest ancestor that paints its own background (a color or an image),
+ * because that is the element a viewer would say the glass sits on.
+ * Falls back to the body.
+ */
+function findBackdrop(frame: HTMLElement): HTMLElement {
+  const doc = frame.ownerDocument;
+  for (let el = frame.parentElement; el && el !== doc.body; el = el.parentElement) {
+    const style = getComputedStyle(el);
+    const paintsColor =
+      style.backgroundColor !== "transparent" &&
+      style.backgroundColor !== "rgba(0, 0, 0, 0)";
+    if (paintsColor || style.backgroundImage !== "none") {
+      return el;
+    }
+  }
+  if (!doc.body) {
+    throw new Error(
+      "caustics: no backdrop given and the document has no body to fall back to.",
+    );
+  }
+  return doc.body;
+}
+
+/**
+ * Turns `frame` into a liquid-glass lens floating over `backdrop`. When
+ * `backdrop` is omitted, the nearest ancestor that paints a background is
+ * used (falling back to the body); pass it explicitly when the glass
+ * should bend something other than what it visually sits on.
  *
  * The lens cannot sample the page behind it, so it clones `backdrop` into
  * itself and keeps the clone pixel-aligned with the original; the SVG filter
  * then bends, fringes, and saturates that copy and blends a specular rim
  * light over it for the glossy edge. The frame must be visually on top of
- * the backdrop and inside it in layout terms (any positioned descendant
- * works).
+ * the backdrop. The lens gives the frame `position: relative` (only if it
+ * was static) and `overflow: hidden` for the duration of its life;
+ * `destroy()` restores what was there before.
  *
- * Scrolling — the backdrop under the lens, scrollable containers inside
- * it, and page scrolls that move the frame — is mirrored into the copy
+ * Scrolling (the backdrop under the lens, scrollable containers inside
+ * it, and page scrolls that move the frame) is mirrored into the copy
  * automatically (see `trackScroll`), and DOM changes in the backdrop
  * rebuild the copy once per frame (see `trackContent`). With both turned
  * off the clone is a static snapshot.
+ *
+ * @example
+ * // Auto-detected backdrop: glass on whatever the dock sits on.
+ * const lens = createLiquidLens(document.querySelector<HTMLElement>(".dock")!);
+ *
+ * @example
+ * // Explicit backdrop, preset base, one overridden knob.
+ * const lens = createLiquidLens(dock, hero, { ...presets.lean, depth: 30 });
+ * dock.addEventListener("pointerdown", () => lens.setIntensity(1.5));
  */
 export function createLiquidLens(
   frame: HTMLElement,
   backdrop: HTMLElement,
-  options: LiquidLensOptions = {},
+  options?: LiquidLensOptions,
+): LiquidLens;
+export function createLiquidLens(frame: HTMLElement, options?: LiquidLensOptions): LiquidLens;
+export function createLiquidLens(
+  frame: HTMLElement,
+  backdropOrOptions?: HTMLElement | LiquidLensOptions,
+  maybeOptions?: LiquidLensOptions,
 ): LiquidLens {
+  assertElement(frame, "frame");
+
+  const backdropGiven =
+    !!backdropOrOptions && (backdropOrOptions as Node).nodeType === 1;
+  const options = backdropGiven
+    ? (maybeOptions ?? {})
+    : ((backdropOrOptions as LiquidLensOptions | undefined) ?? {});
+  if (backdropGiven) {
+    assertElement(backdropOrOptions, "backdrop");
+  }
+  const backdrop = backdropGiven
+    ? (backdropOrOptions as HTMLElement)
+    : findBackdrop(frame);
+
+  if (frame === backdrop) {
+    throw new TypeError(
+      "caustics: frame and backdrop must be different elements: the lens bends what is behind it, and an element cannot be behind itself.",
+    );
+  }
+  if (!frame.isConnected) {
+    console.warn(
+      "caustics: frame is not in the document; the lens cannot measure or render until it is. Create the lens after mounting the element.",
+    );
+  }
+  warnOnSuspectOptions(options);
+
   const doc = frame.ownerDocument;
   let settings: LiquidLensOptions & typeof DEFAULTS = { ...DEFAULTS, ...options };
 
@@ -117,6 +240,11 @@ export function createLiquidLens(
   // would nest lenses indefinitely).
   frame.setAttribute(LENS_MARKER, "");
 
+  // The frame needs to position the refraction layer and clip it to its
+  // rounded shape. Remember the inline values so destroy() can put back
+  // exactly what the consumer had.
+  const priorInlinePosition = frame.style.position;
+  const priorInlineOverflow = frame.style.overflow;
   if (getComputedStyle(frame).position === "static") {
     frame.style.position = "relative";
   }
@@ -240,11 +368,14 @@ export function createLiquidLens(
   }
 
   // Scroll tracking: one capture-phase listener sees every scroll in the
-  // document — the backdrop itself, scrollers inside it (mirrored into the
+  // document: the backdrop itself, scrollers inside it (mirrored into the
   // clone so the refracted content moves live), and page or ancestor
   // scrolls, which can shift the frame relative to the backdrop and are
   // covered by the re-measure. Unrelated scrolls end in the no-op guards.
   function handleScroll(event: Event): void {
+    if (paused) {
+      return;
+    }
     const target = event.target as Node | null;
     if (target && target.nodeType === 1 && backdrop.contains(target)) {
       mirrorScroll(target as Element);
@@ -288,15 +419,24 @@ export function createLiquidLens(
   // replaying individual mutation records (fragile ordering, moved nodes),
   // any relevant change rebuilds the whole clone, coalesced to once per
   // frame. Mutations inside any lens frame are ignored: the lens's own
-  // bookkeeping — clone transforms, scroll mirroring, the rebuild itself —
+  // bookkeeping (clone transforms, scroll mirroring, the rebuild itself)
   // mutates the tree constantly and must not retrigger the observer.
   let destroyed = false;
   let refreshQueued = false;
+  let paused = false;
+  // Set when content changed while paused, so resume() knows the clone
+  // cannot be trusted and must be rebuilt rather than just re-synced.
+  let cloneStale = false;
 
   function refreshClone(): void {
     if (destroyed) {
       return;
     }
+    if (paused) {
+      cloneStale = true;
+      return;
+    }
+    cloneStale = false;
     const next = buildClone();
     clone.replaceWith(next);
     clone = next;
@@ -359,6 +499,7 @@ export function createLiquidLens(
   let lastHeight = -1;
 
   function update(next: LiquidLensOptions = {}, resolution?: number): void {
+    warnOnSuspectOptions(next);
     settings = { ...settings, ...next };
 
     // An update may have just turned respectReducedMotion on; re-pin a
@@ -415,11 +556,54 @@ export function createLiquidLens(
 
   update();
 
+  if (options.onReady) {
+    // Two frames out: the first rAF fires before the initial paint, the
+    // second after the refraction is actually on screen.
+    const fire = (): void => {
+      if (!destroyed) {
+        options.onReady?.();
+      }
+    };
+    const win = doc.defaultView;
+    if (win) {
+      win.requestAnimationFrame(() => win.requestAnimationFrame(fire));
+    } else {
+      queueMicrotask(fire);
+    }
+  }
+
+  function pause(): void {
+    if (paused || destroyed) {
+      return;
+    }
+    paused = true;
+    refraction.style.display = "none";
+  }
+
+  function resume(): void {
+    if (!paused || destroyed) {
+      return;
+    }
+    paused = false;
+    refraction.style.display = "";
+    if (cloneStale) {
+      refreshClone();
+    } else {
+      sync();
+      mirrorAllScrolls();
+    }
+  }
+
   return {
     update,
     sync,
     syncTo,
     setIntensity,
+    pause,
+    resume,
+    get options(): Readonly<LiquidLensOptions> {
+      return { ...settings };
+    },
     destroy(): void {
       // Disconnect before removing the marker: pending mutation records
       // would otherwise see an unmarked frame and schedule a rebuild of a
@@ -432,6 +616,8 @@ export function createLiquidLens(
       refraction.remove();
       glassFilter.destroy();
       frame.removeAttribute(LENS_MARKER);
+      frame.style.position = priorInlinePosition;
+      frame.style.overflow = priorInlineOverflow;
     },
   };
 }

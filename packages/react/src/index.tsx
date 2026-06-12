@@ -6,9 +6,11 @@ import {
   type LiquidLensOptions,
 } from "caustics";
 import {
+  forwardRef,
   useEffect,
   useRef,
   type CSSProperties,
+  type ElementType,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -41,15 +43,22 @@ function resolveOptions({ preset, ...options }: UseLiquidLensOptions): LiquidLen
 
 /**
  * Attaches a liquid glass lens to `frameRef`, refracting the content of
- * `backdropRef`. The lens is created on mount and destroyed on unmount;
- * option changes are applied through the lens's cheap update path.
+ * `backdropRef`, or, when `backdropRef` is omitted, of the nearest
+ * ancestor that paints a background. The lens is created on mount and
+ * destroyed on unmount; option changes are applied through the lens's
+ * cheap update path.
  *
  * Returns a ref to the lens handle for imperative per-frame calls
  * (`syncTo()` after moving the frame, `setIntensity()` for press feedback).
+ *
+ * @example
+ * const frameRef = useRef<HTMLDivElement>(null);
+ * const lens = useLiquidLens(frameRef, undefined, { preset: "lean" });
+ * // lens.current?.syncTo(x, y) from a drag handler
  */
 export function useLiquidLens(
   frameRef: RefObject<HTMLElement | null>,
-  backdropRef: RefObject<HTMLElement | null>,
+  backdropRef?: RefObject<HTMLElement | null>,
   options: UseLiquidLensOptions = {},
 ): RefObject<LiquidLensHandle | null> {
   const lensRef = useRef<LiquidLensHandle | null>(null);
@@ -61,12 +70,19 @@ export function useLiquidLens(
 
   useEffect(() => {
     const frame = frameRef.current;
-    const backdrop = backdropRef.current;
-    if (!frame || !backdrop) {
+    if (!frame) {
+      return;
+    }
+    // A backdrop ref that exists but is not attached yet means the consumer
+    // intends a specific element; do not fall back to auto-detection.
+    const backdrop = backdropRef?.current;
+    if (backdropRef && !backdrop) {
       return;
     }
 
-    const lens = createLiquidLens(frame, backdrop, resolveOptions(optionsRef.current));
+    const lens = backdrop
+      ? createLiquidLens(frame, backdrop, resolveOptions(optionsRef.current))
+      : createLiquidLens(frame, resolveOptions(optionsRef.current));
     lensRef.current = lens;
 
     return () => {
@@ -97,8 +113,13 @@ export function useLiquidLens(
 }
 
 export interface LiquidLensProps extends UseLiquidLensOptions {
-  /** Ref to the element behind the lens whose content gets refracted. */
-  backdropRef: RefObject<HTMLElement | null>;
+  /**
+   * Ref to the element behind the lens whose content gets refracted.
+   * Omit it to refract the nearest ancestor that paints a background.
+   */
+  backdropRef?: RefObject<HTMLElement | null>;
+  /** The element type to render as the glass frame (default "div"). */
+  as?: ElementType;
   className?: string;
   style?: CSSProperties;
   /** Rendered above the glass layers (e.g. a button label). */
@@ -106,27 +127,49 @@ export interface LiquidLensProps extends UseLiquidLensOptions {
 }
 
 /**
- * A div that becomes a liquid glass lens over the element in `backdropRef`.
- * Position and size it like any other element (it must visually overlap the
- * backdrop); pass lens options as props, optionally starting from a preset:
+ * An element that becomes a liquid glass lens. Position and size it like
+ * any other element; pass lens options as props, optionally starting from
+ * a preset. A `ref` receives the imperative lens handle for per-frame
+ * calls.
  *
- *     <LiquidLens backdropRef={bg} preset="lean" depth={30} />
+ * @example
+ * <LiquidLens preset="lean" depth={30}>Menu</LiquidLens>
+ *
+ * @example
+ * const lens = useRef<LiquidLensHandle>(null);
+ * <LiquidLens as="nav" ref={lens} backdropRef={heroRef}>
+ *   <Toolbar />
+ * </LiquidLens>
+ * // lens.current?.setIntensity(1.5) on press
  */
-export function LiquidLens({
-  backdropRef,
-  className,
-  style,
-  children,
-  ...options
-}: LiquidLensProps) {
-  const frameRef = useRef<HTMLDivElement | null>(null);
-  useLiquidLens(frameRef, backdropRef, options);
+export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
+  function LiquidLens({ backdropRef, as, className, style, children, ...options }, ref) {
+    const frameRef = useRef<HTMLElement | null>(null);
+    const lensRef = useLiquidLens(frameRef, backdropRef, options);
 
-  return (
-    <div ref={frameRef} className={className} style={style}>
-      {children != null && (
-        <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
-      )}
-    </div>
-  );
-}
+    // Hand the lens handle to the consumer's ref. Declared after
+    // useLiquidLens so this effect runs once the lens exists.
+    useEffect(() => {
+      if (!ref) {
+        return;
+      }
+      if (typeof ref === "function") {
+        ref(lensRef.current);
+        return () => ref(null);
+      }
+      ref.current = lensRef.current;
+      return () => {
+        ref.current = null;
+      };
+    }, [ref, lensRef]);
+
+    const Component = (as ?? "div") as ElementType;
+    return (
+      <Component ref={frameRef} className={className} style={style}>
+        {children != null && (
+          <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+        )}
+      </Component>
+    );
+  },
+);
