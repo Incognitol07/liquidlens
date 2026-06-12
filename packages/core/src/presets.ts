@@ -3,7 +3,10 @@ import type { LiquidLensOptions } from "./lens";
 /** A complete set of effect options (geometry- and behavior-independent). */
 export type LensPreset = Readonly<
   Required<
-    Omit<LiquidLensOptions, "borderRadius" | "respectReducedMotion" | "trackScroll">
+    Omit<
+      LiquidLensOptions,
+      "borderRadius" | "respectReducedMotion" | "trackScroll" | "trackContent"
+    >
   >
 >;
 

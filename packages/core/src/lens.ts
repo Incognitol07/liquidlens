@@ -37,6 +37,14 @@ export interface LiquidLensOptions {
    * backdrop. Set false to drive alignment manually through `sync()`.
    */
   trackScroll?: boolean;
+  /**
+   * When true (the default), watches the backdrop for DOM changes and
+   * rebuilds the refracted copy when they happen, coalesced to at most one
+   * rebuild per frame. A rebuild costs about as much as creating the lens,
+   * so for a very large backdrop that mutates constantly, set false and
+   * recreate the lens at moments you choose.
+   */
+  trackContent?: boolean;
 }
 
 export interface LiquidLens {
@@ -77,6 +85,7 @@ const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius">> = {
   ...presets.full,
   respectReducedMotion: true,
   trackScroll: true,
+  trackContent: true,
 };
 
 /**
@@ -91,10 +100,9 @@ const DEFAULTS: Required<Omit<LiquidLensOptions, "borderRadius">> = {
  *
  * Scrolling — the backdrop under the lens, scrollable containers inside
  * it, and page scrolls that move the frame — is mirrored into the copy
- * automatically (see `trackScroll`).
- *
- * Note: the clone is a snapshot of the backdrop's content; if the content
- * itself changes, call `destroy()` and create the lens again.
+ * automatically (see `trackScroll`), and DOM changes in the backdrop
+ * rebuild the copy once per frame (see `trackContent`). With both turned
+ * off the clone is a static snapshot.
  */
 export function createLiquidLens(
   frame: HTMLElement,
@@ -140,25 +148,29 @@ export function createLiquidLens(
     filter: glassFilter.cssFilter,
   });
 
-  const clone = backdrop.cloneNode(true) as HTMLElement;
-  clone.setAttribute("aria-hidden", "true");
-  clone.removeAttribute("id");
-  clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
-  clone.querySelectorAll(`[${LENS_MARKER}]`).forEach((el) => el.remove());
-  Object.assign(clone.style, {
-    position: "absolute",
-    top: "0",
-    left: "0",
-    margin: "0",
-    width: `${backdrop.clientWidth}px`,
-    height: `${backdrop.clientHeight}px`,
-    pointerEvents: "none",
-  });
-  // The clone is sized to the backdrop's clientWidth, which excludes any
-  // scrollbar; rendering its own scrollbar would shrink its content area
-  // below the original's and shift every line of text.
-  clone.style.setProperty("scrollbar-width", "none");
+  function buildClone(): HTMLElement {
+    const built = backdrop.cloneNode(true) as HTMLElement;
+    built.setAttribute("aria-hidden", "true");
+    built.removeAttribute("id");
+    built.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+    built.querySelectorAll(`[${LENS_MARKER}]`).forEach((el) => el.remove());
+    Object.assign(built.style, {
+      position: "absolute",
+      top: "0",
+      left: "0",
+      margin: "0",
+      width: `${backdrop.clientWidth}px`,
+      height: `${backdrop.clientHeight}px`,
+      pointerEvents: "none",
+    });
+    // The clone is sized to the backdrop's clientWidth, which excludes any
+    // scrollbar; rendering its own scrollbar would shrink its content area
+    // below the original's and shift every line of text.
+    built.style.setProperty("scrollbar-width", "none");
+    return built;
+  }
 
+  let clone = buildClone();
   refraction.appendChild(clone);
   frame.appendChild(refraction);
 
@@ -255,17 +267,91 @@ export function createLiquidLens(
     }
   }
 
-  // cloneNode does not carry scroll positions, so an already-scrolled
-  // backdrop tree would refract its scrolled-to-top state; carry the
-  // offsets over once, then the scroll listener keeps them fresh.
-  if (backdrop.scrollLeft || backdrop.scrollTop) {
-    mirrorScroll(backdrop);
-  }
-  backdrop.querySelectorAll("*").forEach((el) => {
-    if (el.scrollLeft || el.scrollTop) {
-      mirrorScroll(el);
+  // cloneNode does not carry scroll positions, so a freshly built clone of
+  // an already-scrolled backdrop tree would refract its scrolled-to-top
+  // state; carry the offsets over, then the scroll listener keeps them
+  // fresh.
+  function mirrorAllScrolls(): void {
+    if (backdrop.scrollLeft || backdrop.scrollTop) {
+      mirrorScroll(backdrop);
     }
-  });
+    backdrop.querySelectorAll("*").forEach((el) => {
+      if (el.scrollLeft || el.scrollTop) {
+        mirrorScroll(el);
+      }
+    });
+  }
+  mirrorAllScrolls();
+
+  // Content tracking: the clone is a snapshot, so backdrop mutations would
+  // otherwise refract stale pixels until the lens is recreated. Rather than
+  // replaying individual mutation records (fragile ordering, moved nodes),
+  // any relevant change rebuilds the whole clone, coalesced to once per
+  // frame. Mutations inside any lens frame are ignored: the lens's own
+  // bookkeeping — clone transforms, scroll mirroring, the rebuild itself —
+  // mutates the tree constantly and must not retrigger the observer.
+  let destroyed = false;
+  let refreshQueued = false;
+
+  function refreshClone(): void {
+    if (destroyed) {
+      return;
+    }
+    const next = buildClone();
+    clone.replaceWith(next);
+    clone = next;
+    // The new clone carries no transform or scroll state; re-derive both.
+    syncedX = Number.NaN;
+    syncedY = Number.NaN;
+    sync();
+    mirrorAllScrolls();
+  }
+
+  function scheduleCloneRefresh(): void {
+    if (refreshQueued) {
+      return;
+    }
+    refreshQueued = true;
+    const win = doc.defaultView;
+    const schedule = win?.requestAnimationFrame?.bind(win) ?? queueMicrotask;
+    schedule(() => {
+      refreshQueued = false;
+      refreshClone();
+    });
+  }
+
+  let mutationObserver: MutationObserver | undefined;
+
+  function setContentTracking(enabled: boolean): void {
+    if (enabled === (mutationObserver !== undefined)) {
+      return;
+    }
+    if (!enabled) {
+      mutationObserver?.disconnect();
+      mutationObserver = undefined;
+      return;
+    }
+    if (typeof MutationObserver === "undefined") {
+      return;
+    }
+    mutationObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        const target = record.target;
+        const el =
+          target.nodeType === 1 ? (target as Element) : target.parentElement;
+        if (!el || !el.closest(`[${LENS_MARKER}]`)) {
+          scheduleCloneRefresh();
+          return;
+        }
+      }
+    });
+    mutationObserver.observe(backdrop, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+  }
 
   // Size of the frame at the last update, so the ResizeObserver can skip
   // sizes that an explicit update (e.g. a per-frame morph) already handled.
@@ -311,6 +397,7 @@ export function createLiquidLens(
     clone.style.width = `${backdrop.clientWidth}px`;
     clone.style.height = `${backdrop.clientHeight}px`;
     setScrollTracking(settings.trackScroll);
+    setContentTracking(settings.trackContent);
     sync();
   }
 
@@ -334,6 +421,11 @@ export function createLiquidLens(
     syncTo,
     setIntensity,
     destroy(): void {
+      // Disconnect before removing the marker: pending mutation records
+      // would otherwise see an unmarked frame and schedule a rebuild of a
+      // lens that no longer exists.
+      destroyed = true;
+      setContentTracking(false);
       setScrollTracking(false);
       reducedMotion?.removeEventListener?.("change", onMotionPreferenceChange);
       resizeObserver?.disconnect();

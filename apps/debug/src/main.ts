@@ -279,6 +279,7 @@ function currentOptions(): Required<LiquidLensOptions> {
   return {
     respectReducedMotion: true,
     trackScroll: true,
+    trackContent: true,
     borderRadius: geomR.value,
     depth: num("depth"),
     curvature: num("curvature"),

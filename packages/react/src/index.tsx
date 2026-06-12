@@ -90,6 +90,7 @@ export function useLiquidLens(
     options.borderRadius,
     options.respectReducedMotion,
     options.trackScroll,
+    options.trackContent,
   ]);
 
   return lensRef;

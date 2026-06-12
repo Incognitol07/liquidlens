@@ -96,6 +96,10 @@ For drag animations where you already know the offset, use the cheaper path:
 lens.syncTo(x, y);
 ```
 
+Scrolling needs nothing. A feed scrolling under the glass bends live, and so
+does the page. Content changes need nothing either: change the backdrop's
+DOM and the glass picks it up on its own.
+
 ## Tune It
 
 Start simple:
@@ -168,7 +172,7 @@ import { LiquidLens } from "@caustics/react";
 ## A Few Honest Notes
 
 - Caustics works over content you control.
-- If the backdrop content changes a lot, recreate the lens.
+- The glass keeps itself current when the backdrop scrolls or changes. If a huge backdrop changes constantly, pass `trackContent: false` and recreate the lens yourself.
 - Video, canvas, and iframes may not appear live inside the glass.
 
 ## Development
