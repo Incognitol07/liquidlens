@@ -562,12 +562,10 @@
 
       .backdrop {
         width: 480px;
-        max-width: 100%;
         height: 320px;
         background-image: var(--backdrop-image);
         background-size: cover;
         background-position: center;
-        aspect-ratio: 3 / 2;
       }
 
       .backdrop::after {
@@ -826,6 +824,7 @@
         .backdrop {
           width: min(420px, calc(100% - 32px));
           height: auto;
+          aspect-ratio: 3 / 2;
         }
 
         #stage {
@@ -961,6 +960,7 @@
           width: calc(100% - 16px);
           height: auto;
           max-width: 480px;
+          aspect-ratio: 3 / 2;
         }
 
         .backdrop::after {
