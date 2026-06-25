@@ -4,7 +4,7 @@ import {
   type LensPresetName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
-} from "@caustics/core";
+} from "@liquidlens/core";
 import {
   forwardRef,
   useEffect,
@@ -21,7 +21,7 @@ export { presets };
 export interface UseLiquidLensOptions extends LiquidLensOptions {
   /**
    * Named starting point on the quality/cost curve (see `presets` in
-   * caustics). Any option set explicitly overrides the preset's value.
+   * liquidlens). Any option set explicitly overrides the preset's value.
    */
   preset?: LensPresetName;
 }

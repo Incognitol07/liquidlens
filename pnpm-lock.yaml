@@ -32,7 +32,7 @@ importers:
 
   apps/debug:
     dependencies:
-      '@caustics/core':
+      '@liquidlens/core':
         specifier: workspace:*
         version: link:../../packages/core
     devDependencies:
@@ -57,7 +57,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@caustics/core':
+      '@liquidlens/core':
         specifier: workspace:*
         version: link:../core
       react-dom:

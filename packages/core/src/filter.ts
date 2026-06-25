@@ -46,7 +46,7 @@ export interface GlassFilterOptions extends LensParams, GlassEffectOptions {}
 
 export interface GlassFilter {
   /**
-   * Value for the CSS `filter` property, e.g. `url(#caustics-1-0)`.
+   * Value for the CSS `filter` property, e.g. `url(#liquidlens-1-0)`.
    * Re-read and re-apply this after every `update()`: the filter id cycles
    * on update to force a repaint in WebKit, which otherwise ignores changes
    * to the primitives of an already-referenced filter.
@@ -81,7 +81,7 @@ interface FilterShell {
 }
 
 function createFilterShell(doc: Document): FilterShell {
-  const idBase = `caustics-${nextFilterId++}`;
+  const idBase = `liquidlens-${nextFilterId++}`;
   let generation = 0;
   let id = `${idBase}-0`;
 

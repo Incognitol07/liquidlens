@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>caustics</title>
+    <title>liquidlens</title>
     <script>
       // Set the theme before first paint so a saved light theme doesn't
       // flash dark; main.ts re-applies it and syncs the toggle icon.
       (() => {
-        const stored = localStorage.getItem("caustics-debug-theme");
+        const stored = localStorage.getItem("liquidlens-debug-theme");
         document.documentElement.dataset.theme =
           stored === "light" || stored === "dark"
             ? stored
@@ -38,7 +38,7 @@
         --swatch-border: rgba(255, 255, 255, 0.08);
         --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
         --backdrop-image: url("https://picsum.photos/id/1018/960/640");
-        --backdrop-text: "caustics";
+        --backdrop-text: "liquidlens";
         --stage-menu-text: #000000;
         --stage-menu-shadow: rgba(255, 255, 255, 0.55);
         --stage-menu-row: rgba(255, 255, 255, 0.28);
@@ -593,7 +593,7 @@
       }
 
       /* The lens frame. Everything inside it (refraction copy, shine) is
-         injected and managed by createLiquidLens from caustics. */
+         injected and managed by createLiquidLens from liquidlens. */
       .lens {
         position: absolute;
         top: 0;
@@ -1056,7 +1056,7 @@
     <div id="panel-scrim"></div>
     <div id="controls">
       <header id="panel-header">
-        <span class="wordmark">caustics</span>
+        <span class="wordmark">liquidlens</span>
         <span class="tag">debug</span>
         <span class="tag" id="reduced-motion-tag" hidden title="The OS asks for reduced motion; springs snap and press swell is off">reduced motion</span>
         <button id="theme-toggle" class="t-icon-swap" data-state="a" aria-label="Switch to light mode" title="Toggle theme">
@@ -1177,7 +1177,7 @@
         </div>
         <div class="control">
           <label class="control-name" for="backdrop-text">text</label>
-          <input class="control-wide" id="backdrop-text" type="text" value="caustics" />
+          <input class="control-wide" id="backdrop-text" type="text" value="liquidlens" />
         </div>
       </section>
 

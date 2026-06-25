@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 export default defineConfig({
   resolve: {
     alias: {
-      caustics: resolve(__dirname, "../../packages/core/src/index.ts"),
+      "@liquidlens/core": resolve(__dirname, "../../packages/core/src/index.ts"),
     },
   },
 });

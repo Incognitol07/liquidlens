@@ -43,13 +43,13 @@ jobs:
 
       # Do NOT set NPM_TOKEN anywhere: an empty/leftover token disables OIDC.
       # Core publishes first so react's prepare step can resolve its version.
-      - name: Release @caustics/core
+      - name: Release @liquidlens/core
         working-directory: packages/core
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx --no-install semantic-release
 
-      - name: Release @caustics/react
+      - name: Release @liquidlens/react
         working-directory: packages/react
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

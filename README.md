@@ -1,10 +1,10 @@
 https://github.com/user-attachments/assets/fe04afad-9387-4292-8181-2153244353bf
 
-# caustics
+# liquidlens
 
 Liquid glass for the web.
 
-Caustics makes a normal HTML element feel like a real piece of glass. Put it
+LiquidLens makes a normal HTML element feel like a real piece of glass. Put it
 over a hero, toolbar, card, menu, dock, or draggable orb, and the content
 underneath bends through it with shine, color, and depth.
 
@@ -16,7 +16,7 @@ Most glass effects on the web fall apart the moment you leave Chromium. They
 usually become a soft blur in Safari or Firefox, which is fine for frosted UI
 but not for liquid glass.
 
-Caustics takes a different path: the same effect works in Chromium, Safari,
+LiquidLens takes a different path: the same effect works in Chromium, Safari,
 and Firefox.
 
 | Chromium | Safari | Firefox |
@@ -24,12 +24,12 @@ and Firefox.
 | yes | yes | yes |
 
 You still own the element. Style it, resize it, drag it, morph it, animate it.
-Caustics handles the glass inside.
+LiquidLens handles the glass inside.
 
 ## Install
 
 ```sh
-npm install caustics
+npm install @liquidlens/core
 ```
 
 Not published yet. Until the first release, clone this repo and run:
@@ -41,15 +41,15 @@ pnpm build
 
 ## Use It
 
-Give Caustics your glass element:
+Give LiquidLens your glass element:
 
 ```ts
-import { createLiquidLens } from "@caustics/core";
+import { createLiquidLens } from "@liquidlens/core";
 
 const lens = createLiquidLens(document.querySelector<HTMLElement>(".glass")!);
 ```
 
-That is enough. Caustics finds the backdrop on its own: the nearest ancestor
+That is enough. LiquidLens finds the backdrop on its own: the nearest ancestor
 that paints a background. To bend something specific, name it:
 
 ```ts
@@ -82,7 +82,7 @@ const lens = createLiquidLens(glass, backdrop);
 
 ## Move It
 
-If the glass moves, tell Caustics where it is after you move it.
+If the glass moves, tell LiquidLens where it is after you move it.
 
 ```ts
 glass.style.transform = `translate(${x}px, ${y}px)`;
@@ -125,7 +125,7 @@ Useful knobs:
 Or start from a preset:
 
 ```ts
-import { createLiquidLens, presets } from "@caustics/core";
+import { createLiquidLens, presets } from "@liquidlens/core";
 
 createLiquidLens(glass, backdrop, {
   ...presets.lean,
@@ -162,10 +162,10 @@ lens.update({
 
 ## React
 
-React bindings live in `@caustics/react`.
+React bindings live in `@liquidlens/react`.
 
 ```tsx
-import { LiquidLens } from "@caustics/react";
+import { LiquidLens } from "@liquidlens/react";
 
 <LiquidLens preset="lean" depth={30}>
   Menu
@@ -186,7 +186,7 @@ const lens = useRef<LiquidLensHandle>(null);
 
 ## A Few Honest Notes
 
-- Caustics works over content you control.
+- LiquidLens works over content you control.
 - The glass keeps itself current when the backdrop scrolls or changes. If a huge backdrop changes constantly, pass `trackContent: false` and recreate the lens yourself.
 - Video, canvas, and iframes may not appear live inside the glass.
 
@@ -196,7 +196,7 @@ const lens = useRef<LiquidLensHandle>(null);
 pnpm install
 pnpm build
 pnpm test
-pnpm --filter @caustics/debug dev
+pnpm --filter @liquidlens/debug dev
 ```
 
 Workspace:

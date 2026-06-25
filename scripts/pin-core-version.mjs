@@ -1,4 +1,4 @@
-// Rewrites @caustics/react's `@caustics/core: workspace:*` dependency to a real,
+// Rewrites @liquidlens/react's `@liquidlens/core: workspace:*` dependency to a real,
 // published version range right before `npm publish` runs.
 //
 // pnpm rewrites `workspace:*` automatically on publish, but trusted publishing
@@ -13,15 +13,15 @@ const pkgPath = fileURLToPath(
 );
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 
-const coreVersion = execSync("npm view @caustics/core version", {
+const coreVersion = execSync("npm view @liquidlens/core version", {
   encoding: "utf8",
 }).trim();
 
 if (!/^\d+\.\d+\.\d+/.test(coreVersion)) {
-  throw new Error(`Unexpected @caustics/core version from npm: "${coreVersion}"`);
+  throw new Error(`Unexpected @liquidlens/core version from npm: "${coreVersion}"`);
 }
 
-pkg.dependencies["@caustics/core"] = `^${coreVersion}`;
+pkg.dependencies["@liquidlens/core"] = `^${coreVersion}`;
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-console.log(`Pinned @caustics/core to ^${coreVersion} for publish.`);
+console.log(`Pinned @liquidlens/core to ^${coreVersion} for publish.`);

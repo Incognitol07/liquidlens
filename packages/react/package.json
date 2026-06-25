@@ -1,7 +1,7 @@
 {
-  "name": "@caustics/react",
+  "name": "@liquidlens/react",
   "version": "0.0.1",
-  "description": "React bindings for caustics liquid glass lenses",
+  "description": "React bindings for liquidlens liquid glass lenses",
   "type": "module",
   "publishConfig": {
     "access": "public",
@@ -31,7 +31,7 @@
     "dev": "vite build --watch"
   },
   "dependencies": {
-    "@caustics/core": "workspace:*"
+    "@liquidlens/core": "workspace:*"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

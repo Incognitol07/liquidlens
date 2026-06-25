@@ -2,7 +2,7 @@ import { createGlassFilter } from "./filter";
 import { presets } from "./presets";
 import { performanceTier } from "./tier";
 
-const LENS_MARKER = "data-caustics-lens";
+const LENS_MARKER = "data-liquidlens";
 
 export interface LiquidLensOptions {
   /** Maximum displacement at the rim, in px (default 24) */
@@ -127,7 +127,7 @@ function assertElement(value: unknown, name: string): asserts value is HTMLEleme
   if (!value || (value as Node).nodeType !== 1) {
     const got = value === null ? "null" : value === undefined ? "undefined" : typeof value;
     throw new TypeError(
-      `caustics: ${name} must be an HTMLElement, got ${got}. ` +
+      `liquidlens: ${name} must be an HTMLElement, got ${got}. ` +
         `If you queried for it, check that the selector matched.`,
     );
   }
@@ -141,13 +141,13 @@ function warnOnSuspectOptions(options: LiquidLensOptions): void {
   for (const key of UNIT_RANGE_OPTIONS) {
     const value = options[key];
     if (value !== undefined && (value < 0 || value > 1)) {
-      console.warn(`caustics: ${key} is expected in 0..1, got ${value}; the effect may look broken.`);
+      console.warn(`liquidlens: ${key} is expected in 0..1, got ${value}; the effect may look broken.`);
     }
   }
   for (const key of NON_NEGATIVE_OPTIONS) {
     const value = options[key];
     if (value !== undefined && value < 0) {
-      console.warn(`caustics: ${key} must not be negative, got ${value}.`);
+      console.warn(`liquidlens: ${key} must not be negative, got ${value}.`);
     }
   }
 }
@@ -171,7 +171,7 @@ function findBackdrop(frame: HTMLElement): HTMLElement {
   }
   if (!doc.body) {
     throw new Error(
-      "caustics: no backdrop given and the document has no body to fall back to.",
+      "liquidlens: no backdrop given and the document has no body to fall back to.",
     );
   }
   return doc.body;
@@ -233,12 +233,12 @@ export function createLiquidLens(
 
   if (frame === backdrop) {
     throw new TypeError(
-      "caustics: frame and backdrop must be different elements: the lens bends what is behind it, and an element cannot be behind itself.",
+      "liquidlens: frame and backdrop must be different elements: the lens bends what is behind it, and an element cannot be behind itself.",
     );
   }
   if (!frame.isConnected) {
     console.warn(
-      "caustics: frame is not in the document; the lens cannot measure or render until it is. Create the lens after mounting the element.",
+      "liquidlens: frame is not in the document; the lens cannot measure or render until it is. Create the lens after mounting the element.",
     );
   }
   warnOnSuspectOptions(options);

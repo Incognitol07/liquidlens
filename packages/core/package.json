@@ -1,5 +1,5 @@
 {
-  "name": "@caustics/core",
+  "name": "@liquidlens/core",
   "version": "0.0.1",
   "description": "Cross-browser liquid glass refraction for the web, built on SVG displacement maps",
   "type": "module",

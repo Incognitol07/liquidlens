@@ -9,7 +9,7 @@ import {
   type LensPresetName,
   type LiquidLens,
   type LiquidLensOptions,
-} from "@caustics/core";
+} from "@liquidlens/core";
 
 
 // On devices without the CPU headroom for the full pipeline, interactions
@@ -122,7 +122,7 @@ function refreshLabels(): void {
 // across reloads and defaults to the OS preference.
 
 type Theme = "dark" | "light";
-const THEME_KEY = "caustics-debug-theme";
+const THEME_KEY = "liquidlens-debug-theme";
 const themeToggle = document.getElementById("theme-toggle") as HTMLButtonElement;
 
 function applyTheme(theme: Theme): void {
@@ -268,7 +268,7 @@ const menuExpandedContent = menuEl.querySelector(
 // The menu lives inside the same backdrop as the draggable orb. Mark it
 // before either lens snapshots the backdrop so each clone can omit the other
 // glass frame instead of recursively refracting a lens inside a lens.
-menuEl.setAttribute("data-caustics-lens", "");
+menuEl.setAttribute("data-liquidlens", "");
 
 /** Capsule clamp: the pill must not grow corners while the height is small. */
 function menuRadius(): number {
@@ -597,7 +597,7 @@ for (const id of ids) {
 
 // ---------------------------------------------------------------------------
 // Init: size the frame before creating the lens so the first generated map
-// is correct, then hand the visual layers over to caustics.
+// is correct, then hand the visual layers over to liquidlens.
 
 refreshLabels();
 lensEl.style.width = `${geomW.value}px`;
