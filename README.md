@@ -32,13 +32,6 @@ LiquidLens handles the glass inside.
 npm install @liquidlens/core
 ```
 
-Not published yet. Until the first release, clone this repo and run:
-
-```sh
-pnpm install
-pnpm build
-```
-
 ## Use It
 
 Give LiquidLens your glass element:
@@ -163,6 +156,10 @@ lens.update({
 ## React
 
 React bindings live in `@liquidlens/react`.
+
+```sh
+npm install @liquidlens/react
+```
 
 ```tsx
 import { LiquidLens } from "@liquidlens/react";
