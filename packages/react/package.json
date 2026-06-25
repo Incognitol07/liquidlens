@@ -3,6 +3,15 @@
   "version": "0.0.1",
   "description": "React bindings for caustics liquid glass lenses",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Incognitol07/caustics.git",
+    "directory": "packages/react"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,7 +31,7 @@
     "dev": "vite build --watch"
   },
   "dependencies": {
-    "caustics": "workspace:*"
+    "@caustics/core": "workspace:*"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

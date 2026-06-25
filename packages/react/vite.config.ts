@@ -10,7 +10,7 @@ export default defineConfig({
       formats: ["es", "cjs"],
     },
     rollupOptions: {
-      external: ["react", "react/jsx-runtime", "react/jsx-dev-runtime", "caustics"],
+      external: ["react", "react/jsx-runtime", "react/jsx-dev-runtime", "@caustics/core"],
     },
     sourcemap: true,
     minify: false,

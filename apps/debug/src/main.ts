@@ -9,7 +9,7 @@ import {
   type LensPresetName,
   type LiquidLens,
   type LiquidLensOptions,
-} from "caustics";
+} from "@caustics/core";
 
 
 // On devices without the CPU headroom for the full pipeline, interactions

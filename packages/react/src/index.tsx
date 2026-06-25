@@ -4,7 +4,7 @@ import {
   type LensPresetName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
-} from "caustics";
+} from "@caustics/core";
 import {
   forwardRef,
   useEffect,

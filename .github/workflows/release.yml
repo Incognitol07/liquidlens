@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Never run two releases at once; don't cancel an in-flight publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create git tags + GitHub releases
+      id-token: write # OIDC token for npm trusted publishing
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # >= 22.14 required for OIDC trusted publishing
+          # Intentionally NO registry-url: it writes an .npmrc with an empty
+          # _authToken that npm prefers over OIDC, breaking trusted publishing.
+
+      # Trusted publishing + automatic provenance needs npm >= 11.5.1.
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm -r build
+
+      # Do NOT set NPM_TOKEN anywhere: an empty/leftover token disables OIDC.
+      # Core publishes first so react's prepare step can resolve its version.
+      - name: Release @caustics/core
+        working-directory: packages/core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --no-install semantic-release
+
+      - name: Release @caustics/react
+        working-directory: packages/react
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --no-install semantic-release

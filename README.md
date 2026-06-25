@@ -44,7 +44,7 @@ pnpm build
 Give Caustics your glass element:
 
 ```ts
-import { createLiquidLens } from "caustics";
+import { createLiquidLens } from "@caustics/core";
 
 const lens = createLiquidLens(document.querySelector<HTMLElement>(".glass")!);
 ```
@@ -125,7 +125,7 @@ Useful knobs:
 Or start from a preset:
 
 ```ts
-import { createLiquidLens, presets } from "caustics";
+import { createLiquidLens, presets } from "@caustics/core";
 
 createLiquidLens(glass, backdrop, {
   ...presets.lean,
