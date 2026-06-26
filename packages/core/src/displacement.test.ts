@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeDisplacementField } from "./displacement";
+import { sampleRoundedRect } from "./sdf";
+import { superellipseShape, type LensShape } from "./shape";
 
 const baseParams = {
   width: 100,
@@ -65,6 +67,69 @@ describe("computeDisplacementField", () => {
     const topEdge = 1 * width + midX;
     expect(field.dx[leftEdge]).toBeGreaterThan(0);
     expect(field.dy[topEdge]).toBeGreaterThan(0);
+  });
+
+  it("follows a non-rectangular shape (ellipse) and stays doubly symmetric", () => {
+    const field = computeDisplacementField({
+      ...baseParams,
+      shape: superellipseShape(2),
+    });
+    // Center still flat.
+    const center = 30 * field.width + 50;
+    expect(Math.hypot(field.dx[center], field.dy[center])).toBeCloseTo(0, 1);
+    // Symmetric across the vertical center line, like the built-in rect.
+    const py = 10;
+    const left = 6;
+    const right = field.width - 1 - left;
+    expect(field.dx[py * field.width + right]).toBeCloseTo(
+      -field.dx[py * field.width + left],
+      4,
+    );
+  });
+
+  it("samples only one quadrant for a symmetric shape but every pixel for an asymmetric one", () => {
+    const count = (symmetric: boolean): number => {
+      let calls = 0;
+      const probe: LensShape = {
+        key: `probe:${symmetric}`,
+        symmetric,
+        sample: (_x, _y, _hw, _hh, out) => {
+          calls += 1;
+          out.distance = 1; // outside everywhere → no displacement written
+          out.normalX = 0;
+          out.normalY = 0;
+          return out;
+        },
+      };
+      computeDisplacementField({ ...baseParams, shape: probe });
+      return calls;
+    };
+    // width 100, height 60 → quadrant is 50 x 30 = 1500; full is 6000.
+    expect(count(true)).toBe(1500);
+    expect(count(false)).toBe(6000);
+  });
+
+  it("renders an asymmetric shape without forcing it symmetric", () => {
+    // A rounded rect whose center is shifted right: its left rim sits inside
+    // the frame while the right rim falls outside it, so a correct field is
+    // not mirror-symmetric. Sampling the same shape under the symmetric fast
+    // path (which mirrors one quadrant) must give a different — wrong — field.
+    const sample = (x: number, y: number, hw: number, hh: number, out: any) =>
+      sampleRoundedRect(x - 15, y, hw, hh, 8, out);
+    const correct = computeDisplacementField({
+      ...baseParams,
+      shape: { key: "shifted", symmetric: false, sample } as LensShape,
+    });
+    const mirrored = computeDisplacementField({
+      ...baseParams,
+      shape: { key: "shifted-sym", symmetric: true, sample } as LensShape,
+    });
+
+    let maxDiff = 0;
+    for (let i = 0; i < correct.dx.length; i++) {
+      maxDiff = Math.max(maxDiff, Math.abs(correct.dx[i] - mirrored.dx[i]));
+    }
+    expect(maxDiff).toBeGreaterThan(0.5);
   });
 
   it("scales sample count with resolution while keeping values in CSS px", () => {

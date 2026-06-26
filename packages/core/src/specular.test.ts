@@ -27,4 +27,20 @@ describe("specularIntensity", () => {
     const full = specularIntensity(0, 1, 1);
     expect(half).toBeCloseTo(full / 2, 10);
   });
+
+  it("tightens the hot spot as sharpness rises", () => {
+    // At a partly-facing normal, a higher exponent yields a dimmer highlight
+    // (the lobe is narrower), while the dead-on highlight is unchanged.
+    const soft = specularIntensity(0.6, 1, 1, 4);
+    const sharp = specularIntensity(0.6, 1, 1, 20);
+    expect(sharp).toBeLessThan(soft);
+    expect(specularIntensity(1, 1, 1, 4)).toBeCloseTo(
+      specularIntensity(1, 1, 1, 20),
+      10,
+    );
+  });
+
+  it("defaults to the same exponent as passing 10 explicitly", () => {
+    expect(specularIntensity(0.6, 1, 1)).toBeCloseTo(specularIntensity(0.6, 1, 1, 10), 10);
+  });
 });
