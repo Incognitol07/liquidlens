@@ -24,3 +24,5 @@ export type {
   DraggableLens,
 } from "./follow";
 export { createLensFollower, makeLensDraggable } from "./follow";
+export type { MorphState, MorphFrame, LensMorphOptions, LensMorph } from "./morph";
+export { createLensMorph } from "./morph";

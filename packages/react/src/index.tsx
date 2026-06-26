@@ -37,11 +37,16 @@ export { presets, performanceTier, Spring };
 export {
   useLensFollow,
   useDraggableLens,
+  useLensMorph,
   type SpringConfig,
   type LensFollowOptions,
   type DraggableLensOptions,
+  type LensMorphOptions,
+  type MorphState,
+  type MorphFrame,
   type ReactLensFollower,
   type ReactDraggableLens,
+  type ReactLensMorph,
 } from "./follow";
 
 /**

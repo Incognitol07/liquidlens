@@ -1,18 +1,25 @@
 import { useEffect, useRef, type RefObject } from "react";
 import {
   createLensFollower,
+  createLensMorph,
   makeLensDraggable,
   type DraggableLens,
   type DraggableLensOptions,
   type LensFollower,
   type LensFollowOptions,
+  type LensMorph,
+  type LensMorphOptions,
   type LiquidLens as LiquidLensHandle,
+  type MorphState,
 } from "@liquidlens/core";
 
 export type {
   SpringConfig,
   LensFollowOptions,
   DraggableLensOptions,
+  LensMorphOptions,
+  MorphState,
+  MorphFrame,
 } from "@liquidlens/core";
 
 /** Stable handle returned by {@link useLensFollow}; proxies to the live follower. */
@@ -141,6 +148,86 @@ export function useDraggableLens(
 
   useEffect(() => {
     dragRef.current?.configure({
+      stiffness: config.stiffness,
+      damping: config.damping,
+    });
+  }, [config.stiffness, config.damping]);
+
+  return facadeRef.current;
+}
+
+/** Stable handle returned by {@link useLensMorph}. */
+export interface ReactLensMorph {
+  to(state: MorphState): void;
+  set(state: MorphState): void;
+  readonly width: number;
+  readonly height: number;
+  readonly borderRadius: number;
+}
+
+/**
+ * React wrapper around the core {@link createLensMorph}: springs a lens
+ * frame's size and corner radius, regenerating the refraction at reduced
+ * resolution while moving and once crisply on settle. The liquid layer for a
+ * lens's *size*, as `useLensFollow` is for its position.
+ *
+ * `stiffness`/`damping` update the live springs; `onFrame` always uses the
+ * latest callback without recreating the morph.
+ *
+ * @example
+ * const frameRef = useRef<HTMLDivElement>(null);
+ * const lens = useLiquidLens(frameRef, backdropRef, { depth: 30 });
+ * const morph = useLensMorph(frameRef, lens, {
+ *   springs: { width: { stiffness: 260, damping: 15 } },
+ * });
+ * // morph.to({ width: 172, height: 80 }) on expand
+ */
+export function useLensMorph(
+  frameRef: RefObject<HTMLElement | null>,
+  lensRef: RefObject<LiquidLensHandle | null>,
+  config: LensMorphOptions = {},
+): ReactLensMorph {
+  const morphRef = useRef<LensMorph | null>(null);
+
+  const facadeRef = useRef<ReactLensMorph | null>(null);
+  if (!facadeRef.current) {
+    facadeRef.current = {
+      to: (state) => morphRef.current?.to(state),
+      set: (state) => morphRef.current?.set(state),
+      get width() {
+        return morphRef.current?.width ?? 0;
+      },
+      get height() {
+        return morphRef.current?.height ?? 0;
+      },
+      get borderRadius() {
+        return morphRef.current?.borderRadius ?? 0;
+      },
+    };
+  }
+
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    const lens = lensRef.current;
+    if (!frame || !lens) return;
+    // Wrap onFrame so the latest callback runs without recreating the morph.
+    const morph = createLensMorph(frame, lens, {
+      ...configRef.current,
+      onFrame: (state) => configRef.current.onFrame?.(state),
+    });
+    morphRef.current = morph;
+    return () => {
+      morph.destroy();
+      morphRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameRef, lensRef]);
+
+  useEffect(() => {
+    morphRef.current?.configure({
       stiffness: config.stiffness,
       damping: config.damping,
     });

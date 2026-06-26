@@ -1,6 +1,7 @@
 import {
   computeDisplacementField,
   createLensFollower,
+  createLensMorph,
   createLiquidLens,
   performanceTier,
   presets,
@@ -9,6 +10,7 @@ import {
   resolveShape,
   Spring,
   type LensFollower,
+  type LensMorph,
   type LensPresetName,
   type LensShapeName,
   type LiquidLens,
@@ -241,15 +243,18 @@ new ResizeObserver(() => {
 const dragOffset = { x: 0, y: 0 };
 let orbFollow: LensFollower | undefined;
 
-const geomW = new Spring(num("width"), 170, 16);
-const geomH = new Spring(num("height"), 170, 16);
-const geomR = new Spring(num("borderRadius"), 170, 16);
+// The orb's size morph is the package's (createLensMorph), created at init.
+// It owns the frame's width/height/borderRadius and regenerates the lens as
+// the size springs move. These accessors read it once it exists, else the
+// slider value (used before init).
+let orbMorph: LensMorph | undefined;
+const sizeW = (): number => orbMorph?.width ?? num("width");
+const sizeH = (): number => orbMorph?.height ?? num("height");
+const sizeR = (): number => orbMorph?.borderRadius ?? num("borderRadius");
 
 let dragging = false;
 let rafId: number | undefined;
 let lastTime = 0;
-let needsFinalPass = false;
-const appliedGeom = { w: geomW.value, h: geomH.value, r: geomR.value };
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -269,18 +274,28 @@ refreshReducedMotionTag();
 // so the shape distorts liquidly en route instead of scaling between two
 // rectangles in lockstep. The radius is near-critically damped because a
 // radius overshoot reads as the corners sharpening, not as bounce.
-const MENU_COLLAPSED = { w: 40, h: 36, r: 18 };
-const MENU_EXPANDED = { w: 172, h: 80, r: 16 };
-const menuW = new Spring(MENU_COLLAPSED.w, 260, 15);
-const menuH = new Spring(MENU_COLLAPSED.h, 170, 12);
-const menuR = new Spring(MENU_COLLAPSED.r, 220, 29);
+const MENU_COLLAPSED = { width: 40, height: 36, borderRadius: 18 };
+const MENU_EXPANDED = { width: 172, height: 80, borderRadius: 16 };
+// Per-axis morph springs: the width leads and the height blooms a beat behind
+// it, so the shape distorts liquidly en route instead of scaling between two
+// rectangles in lockstep. The radius is near-critically damped because a
+// radius overshoot reads as the corners sharpening, not as bounce. Driven by
+// the package morph (createLensMorph), created at init.
+const MENU_SPRINGS = {
+  width: { stiffness: 260, damping: 15 },
+  height: { stiffness: 170, damping: 12 },
+  borderRadius: { stiffness: 220, damping: 29 },
+};
+let menuMorph: LensMorph | undefined;
 // Press feedback: squishes the glass and swells its refraction while the
-// pointer is down, so the release winds up into the morph.
+// pointer is down. Independent of the morph (it can fire on a tap that doesn't
+// expand), so it stays a local spring, stepped in the retained press loop.
 const menuPress = new Spring(0, 550, 14);
+// The morph-speed swell, updated each morph frame; combined with the press
+// swell through one shared intensity formula so the two loops never fight.
+let menuMorphSwell = 0;
 let menuExpanded = false;
 let menuLens: LiquidLens | undefined;
-const menuApplied = { w: menuW.value, h: menuH.value, r: menuR.value };
-let menuNeedsFinalPass = false;
 
 const menuEl = document.getElementById("liquid-menu") as HTMLElement;
 const menuTrigger = document.getElementById("liquid-menu-trigger") as HTMLButtonElement;
@@ -292,9 +307,9 @@ const menuExpandedContent = menuEl.querySelector(
 // glass frame instead of recursively refracting a lens inside a lens.
 menuEl.setAttribute("data-liquidlens", "");
 
-/** Capsule clamp: the pill must not grow corners while the height is small. */
-function menuRadius(): number {
-  return Math.min(menuR.value, menuH.value / 2);
+/** Refraction intensity from the combined press + morph-speed swell. */
+function menuIntensity(): number {
+  return 1 + 0.5 * menuPress.value + menuMorphSwell;
 }
 
 const MENU_OPTIONS = {
@@ -314,7 +329,7 @@ function currentOptions(): LiquidLensOptions {
     respectReducedMotion: true,
     trackScroll: true,
     trackContent: true,
-    borderRadius: geomR.value,
+    borderRadius: sizeR(),
     shape: shapeName,
     depth: num("depth"),
     curvature: num("curvature"),
@@ -342,138 +357,73 @@ function frameRadiusCss(): string {
     case "ellipse":
       return "50%";
     case "pill":
-      return `${Math.min(geomW.value, geomH.value) / 2}px`;
+      return `${Math.min(sizeW(), sizeH()) / 2}px`;
     default:
-      return `${geomR.value}px`;
+      return `${sizeR()}px`;
   }
 }
 
 /** The orb's absolute top-left = backdrop center for the current size, plus the drag offset. */
 function orbTarget(): { x: number; y: number } {
   return {
-    x: (backgroundW - geomW.value) / 2 + dragOffset.x,
-    y: (backgroundH - geomH.value) / 2 + dragOffset.y,
+    x: (backgroundW - sizeW()) / 2 + dragOffset.x,
+    y: (backgroundH - sizeH()) / 2 + dragOffset.y,
   };
 }
 
+// The orb position/squash/press (createLensFollower), the orb size morph and
+// the menu morph (createLensMorph) each run in their own package loop. This
+// retained loop only drives the menu's press feedback, which is independent of
+// the morph (it can fire on a tap that doesn't expand).
 function tick(now: number): void {
   const dt = Math.min((now - lastTime) / 1000, 1 / 30);
   lastTime = now;
 
-  geomW.target = num("width");
-  geomH.target = num("height");
-  geomR.target = num("borderRadius");
-
-  const menuTarget = menuExpanded ? MENU_EXPANDED : MENU_COLLAPSED;
-  menuW.target = menuTarget.w;
-  menuH.target = menuTarget.h;
-  menuR.target = menuTarget.r;
-
-  // The orb's own motion (position, squash, press) runs in the package
-  // follower's loop; this loop drives the geometry and menu morphs.
-  const springs = [geomW, geomH, geomR, menuW, menuH, menuR, menuPress];
   if (reducedMotion.matches) {
-    // No wobble, stretch, swell, or morph tween for users who asked for
-    // less motion; everything jumps straight to its target.
-    for (const spring of springs) spring.snap();
+    menuPress.snap();
   } else {
-    for (const spring of springs) spring.step(dt);
+    menuPress.step(dt);
   }
-
-  // Geometry morph: resize the frame and regenerate the maps cheaply.
-  const geometryChanged =
-    Math.abs(geomW.value - appliedGeom.w) > 0.1 ||
-    Math.abs(geomH.value - appliedGeom.h) > 0.1 ||
-    Math.abs(geomR.value - appliedGeom.r) > 0.1;
-
-  if (geometryChanged) {
-    appliedGeom.w = geomW.value;
-    appliedGeom.h = geomH.value;
-    appliedGeom.r = geomR.value;
-    lensEl.style.width = `${geomW.value}px`;
-    lensEl.style.height = `${geomH.value}px`;
-    lensEl.style.borderRadius = frameRadiusCss();
-    lens?.update(
-      { ...currentOptions(), ...(lowTier ? { aberration: 0, blur: 0 } : null) },
-      0.5,
-    );
-    refreshPreviews(0.5);
-    needsFinalPass = true;
-    // Keep the orb centered as the backdrop center shifts with the size,
-    // unless the user is dragging it (then the follower owns its position).
-    if (!dragging) {
-      const c = orbTarget();
-      orbFollow?.set(c.x, c.y);
-    }
-  }
-
-  // Menu morph: resize the menu frame and regenerate maps cheaply.
-  const menuChanged =
-    Math.abs(menuW.value - menuApplied.w) > 0.1 ||
-    Math.abs(menuH.value - menuApplied.h) > 0.1 ||
-    Math.abs(menuR.value - menuApplied.r) > 0.1;
-
-  if (menuChanged) {
-    menuApplied.w = menuW.value;
-    menuApplied.h = menuH.value;
-    menuApplied.r = menuR.value;
-    menuEl.style.width = `${menuW.value}px`;
-    menuEl.style.height = `${menuH.value}px`;
-    menuEl.style.borderRadius = `${menuRadius()}px`;
-    menuLens?.update(
-      { borderRadius: menuRadius(), ...(lowTier ? { blur: 0 } : null) },
-      0.5,
-    );
-    menuNeedsFinalPass = true;
-
-    // Content rides the morph instead of cross-fading on its own clock:
-    // the label is gone in the first third of the height bloom, the
-    // options arrive over the rest, still moving while the frame settles.
-    const t = clamp(
-      (menuH.value - MENU_COLLAPSED.h) / (MENU_EXPANDED.h - MENU_COLLAPSED.h),
-      0,
-      1,
-    );
-    const labelOut = clamp(t / 0.35, 0, 1);
-    menuTrigger.style.opacity = String(1 - labelOut);
-    menuTrigger.style.transform = `scale(${1 - 0.08 * labelOut})`;
-    const optionsIn = clamp((t - 0.35) / 0.65, 0, 1);
-    menuExpandedContent.style.opacity = String(optionsIn);
-    menuExpandedContent.style.transform = `translateY(${-6 * (1 - optionsIn)}px)`;
-  }
-
-  // The menu glass gulps while its shape is in flux: refraction swells with
-  // press and morph speed, relaxing to rest as the springs settle.
+  // Squishes from the pinned top edge (transform-origin in CSS); the morph
+  // owns width/height, so transform and size don't collide.
   menuEl.style.transform = `scale(${1 - 0.045 * menuPress.value})`;
-  menuLens?.setIntensity(
-    1 +
-      0.5 * menuPress.value +
-      Math.min(Math.hypot(menuW.velocity, menuH.velocity) * 0.0006, 0.8),
-  );
+  menuLens?.setIntensity(menuIntensity());
 
-  if (springs.some((s) => !s.settled)) {
+  if (!menuPress.settled) {
     rafId = requestAnimationFrame(tick);
   } else {
-    if (needsFinalPass) {
-      // One crisp full-resolution pass now that the morph has settled.
-      needsFinalPass = false;
-      lens?.update(currentOptions());
-      refreshPreviews();
-    }
-    if (menuNeedsFinalPass) {
-      menuNeedsFinalPass = false;
-      menuLens?.update({ borderRadius: menuRadius(), blur: MENU_OPTIONS.blur });
-    }
     rafId = undefined;
   }
 }
 
-/** Starts the animation loop if it is not already running. */
+/** Starts the press loop if it is not already running. */
 function wake(): void {
   if (rafId === undefined) {
     lastTime = performance.now();
     rafId = requestAnimationFrame(tick);
   }
+}
+
+/** Content + intensity that ride the menu morph, run from its onFrame. */
+function onMenuMorphFrame(f: { height: number; speed: number }): void {
+  // The label is gone in the first third of the height bloom; the options
+  // arrive over the rest, still moving while the frame settles.
+  const t = clamp(
+    (f.height - MENU_COLLAPSED.height) / (MENU_EXPANDED.height - MENU_COLLAPSED.height),
+    0,
+    1,
+  );
+  const labelOut = clamp(t / 0.35, 0, 1);
+  menuTrigger.style.opacity = String(1 - labelOut);
+  menuTrigger.style.transform = `scale(${1 - 0.08 * labelOut})`;
+  const optionsIn = clamp((t - 0.35) / 0.65, 0, 1);
+  menuExpandedContent.style.opacity = String(optionsIn);
+  menuExpandedContent.style.transform = `translateY(${-6 * (1 - optionsIn)}px)`;
+
+  // The glass gulps while its shape is in flux; combined with the press swell
+  // through the shared formula so the press loop and this never disagree.
+  menuMorphSwell = Math.min(f.speed * 0.0006, 0.8);
+  menuLens?.setIntensity(menuIntensity());
 }
 
 // ---------------------------------------------------------------------------
@@ -483,10 +433,10 @@ const mobileLayout = matchMedia("(max-width: 768px)");
 
 function refreshPreviews(resolution = 1): void {
   const options = currentOptions();
-  const borderRadius = options.borderRadius ?? geomR.value;
+  const borderRadius = options.borderRadius ?? sizeR();
   const params = {
-    width: Math.round(geomW.value),
-    height: Math.round(geomH.value),
+    width: Math.round(sizeW()),
+    height: Math.round(sizeH()),
     borderRadius,
     shape: resolveShape(shapeName, borderRadius),
     depth: options.depth ?? 0,
@@ -524,7 +474,7 @@ function buildReactSnippet(): string {
     props.push(`  ${name}="${value}"`);
 
   const style =
-    `{ width: ${Math.round(geomW.value)}, height: ${Math.round(geomH.value)}, ` +
+    `{ width: ${Math.round(sizeW())}, height: ${Math.round(sizeH())}, ` +
     `borderRadius: "${frameRadiusCss()}" }`;
   props.push(`  style={${style}}`);
 
@@ -580,11 +530,11 @@ lensEl.addEventListener("pointerdown", (event) => {
   const grabY = event.clientY - (orbFollow?.y ?? 0);
 
   const onMove = (moveEvent: PointerEvent) => {
-    const x = clamp(moveEvent.clientX - grabX, 0, backgroundW - geomW.value);
-    const y = clamp(moveEvent.clientY - grabY, 0, backgroundH - geomH.value);
+    const x = clamp(moveEvent.clientX - grabX, 0, backgroundW - sizeW());
+    const y = clamp(moveEvent.clientY - grabY, 0, backgroundH - sizeH());
     // Remember the offset from center so a later size morph re-centers correctly.
-    dragOffset.x = x - (backgroundW - geomW.value) / 2;
-    dragOffset.y = y - (backgroundH - geomH.value) / 2;
+    dragOffset.x = x - (backgroundW - sizeW()) / 2;
+    dragOffset.y = y - (backgroundH - sizeH()) / 2;
     orbFollow?.to(x, y);
   };
 
@@ -657,7 +607,12 @@ for (const id of ids) {
     // Snippet updates per value change (input events), not per morph frame.
     refreshExport();
     if (GEOMETRY_IDS.includes(id)) {
-      wake();
+      // The package size morph springs the frame to the new dimensions.
+      orbMorph?.to({
+        width: num("width"),
+        height: num("height"),
+        borderRadius: num("borderRadius"),
+      });
     } else if (id === "stiffness" || id === "damping") {
       orbFollow?.configure({ stiffness: num("stiffness"), damping: num("damping") });
     } else {
@@ -738,8 +693,8 @@ exportCopy.addEventListener("click", async () => {
 // is correct, then hand the visual layers over to liquidlens.
 
 refreshLabels();
-lensEl.style.width = `${geomW.value}px`;
-lensEl.style.height = `${geomH.value}px`;
+lensEl.style.width = `${num("width")}px`;
+lensEl.style.height = `${num("height")}px`;
 lensEl.style.borderRadius = frameRadiusCss();
 lens = createLiquidLens(lensEl, background, currentOptions());
 // The orb's motion is the package's, not hand-rolled: position spring-follow
@@ -751,7 +706,26 @@ orbFollow = createLensFollower(lensEl, lens, {
   pressScale: 0.05,
   initial: orbTarget(),
 });
-refreshPreviews();
+// The size sliders drive the package size morph, which owns the frame's
+// width/height/borderRadius and regenerates the lens as they spring.
+orbMorph = createLensMorph(lensEl, lens, {
+  initial: {
+    width: num("width"),
+    height: num("height"),
+    borderRadius: num("borderRadius"),
+  },
+  onFrame: (f) => {
+    // Re-apply the shape-aware clip (ellipse → 50%, etc.) over the px the
+    // morph wrote, keep the orb centered as the size changes (unless dragged),
+    // and animate the map previews — crisp once the morph settles.
+    lensEl.style.borderRadius = frameRadiusCss();
+    if (!dragging) {
+      const c = orbTarget();
+      orbFollow?.set(c.x, c.y);
+    }
+    refreshPreviews(f.settled ? 1 : 0.5);
+  },
+});
 refreshExport();
 
 // ---------------------------------------------------------------------------
@@ -760,12 +734,19 @@ refreshExport();
 const optReset = document.getElementById("opt-reset")!;
 const optRandomize = document.getElementById("opt-randomize")!;
 
-menuEl.style.width = `${menuW.value}px`;
-menuEl.style.height = `${menuH.value}px`;
-menuEl.style.borderRadius = `${menuRadius()}px`;
+menuEl.style.width = `${MENU_COLLAPSED.width}px`;
+menuEl.style.height = `${MENU_COLLAPSED.height}px`;
+menuEl.style.borderRadius = `${MENU_COLLAPSED.borderRadius}px`;
 menuLens = createLiquidLens(menuEl, background, {
   ...MENU_OPTIONS,
-  borderRadius: menuRadius(),
+  borderRadius: MENU_COLLAPSED.borderRadius,
+});
+// The menu's collapse/expand is the package size morph, with per-axis springs
+// for the lead-and-follow feel; content + swell ride it via onFrame.
+menuMorph = createLensMorph(menuEl, menuLens, {
+  initial: MENU_COLLAPSED,
+  springs: MENU_SPRINGS,
+  onFrame: onMenuMorphFrame,
 });
 
 // Press feedback on tap: squishes the glass when the menu is collapsed
@@ -805,7 +786,7 @@ function expandMenu(): void {
   menuExpanded = true;
   menuEl.classList.add("is-expanded");
   menuTrigger.setAttribute("aria-expanded", "true");
-  wake();
+  menuMorph?.to(MENU_EXPANDED);
 }
 
 function collapseMenu({ restoreFocus = false } = {}): void {
@@ -816,7 +797,7 @@ function collapseMenu({ restoreFocus = false } = {}): void {
   if (restoreFocus) {
     menuTrigger.focus();
   }
-  wake();
+  menuMorph?.to(MENU_COLLAPSED);
 }
 
 menuEl.addEventListener("keydown", (event) => {
