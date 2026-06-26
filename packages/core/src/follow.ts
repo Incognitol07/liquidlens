@@ -12,6 +12,11 @@ const SQUASH_SPEED_SCALE = 0.00035;
 // Below this stretch the distortion is invisible; skip composing it.
 const SQUASH_EPSILON = 1e-3;
 
+// Stiff, lightly-damped spring for the press squish, so it eases in on grab
+// and springs back on release.
+const PRESS_STIFFNESS = 550;
+const PRESS_DAMPING = 20;
+
 export interface SpringConfig {
   /** Spring constant; higher snaps to the target faster (default 140). */
   stiffness?: number;
@@ -35,6 +40,14 @@ export interface LensFollowOptions extends SpringConfig {
    * read (a plain positioned element does).
    */
   squash?: number;
+  /**
+   * Maximum uniform compression while "pressed" (default 0, off). Drive it
+   * with the controller's `press(level)`; the frame eases to `1 - pressScale`
+   * scale at full press and springs back on release. `makeLensDraggable`
+   * presses on grab and releases on drop automatically. Like `squash`, it
+   * distorts only the frame's transform, not the refraction alignment.
+   */
+  pressScale?: number;
 }
 
 /**
@@ -50,6 +63,11 @@ export interface LensFollower {
   readonly y: number;
   /** Update the spring constants in place, keeping in-flight velocity. */
   configure(config: SpringConfig): void;
+  /**
+   * Set the press level (0 released … 1 fully pressed); the frame springs
+   * toward `1 - pressScale * level` compression. No-op when `pressScale` is 0.
+   */
+  press(level: number): void;
   /** Stop the loop and release listeners. */
   destroy(): void;
 }
@@ -78,7 +96,9 @@ export function createLensFollower(
   const win = frame.ownerDocument.defaultView;
   const springX = new Spring(options.initial?.x ?? 0, options.stiffness ?? DEFAULT_STIFFNESS, options.damping ?? DEFAULT_DAMPING);
   const springY = new Spring(options.initial?.y ?? 0, options.stiffness ?? DEFAULT_STIFFNESS, options.damping ?? DEFAULT_DAMPING);
+  const pressSpring = new Spring(0, PRESS_STIFFNESS, PRESS_DAMPING);
   const squash = Math.max(0, options.squash ?? 0);
+  const pressScale = Math.max(0, options.pressScale ?? 0);
 
   const reducedMotion = win?.matchMedia?.("(prefers-reduced-motion: reduce)");
   let rafId: number | undefined;
@@ -87,18 +107,21 @@ export function createLensFollower(
 
   const write = (x: number, y: number): void => {
     let transform = `translate3d(${x}px, ${y}px, 0)`;
+    // Decorative distortion (squash + press) goes on the frame transform only;
+    // syncTo below gets the translation alone, so the refraction stays aligned.
+    const compress = pressScale > 0 ? 1 - pressScale * pressSpring.value : 1;
+    let stretch = 0;
     if (squash > 0) {
       // Stretch along the heading by the spring's current speed, capped at
-      // `squash`; decays to round as the spring settles. The refraction is
-      // NOT distorted — only the frame's transform carries the scale, and
-      // syncTo below gets the translation alone.
-      const vx = springX.velocity;
-      const vy = springY.velocity;
-      const stretch = Math.min(Math.hypot(vx, vy) * SQUASH_SPEED_SCALE, squash);
-      if (stretch > SQUASH_EPSILON) {
-        const angle = Math.atan2(vy, vx);
-        transform += ` rotate(${angle}rad) scale(${1 + stretch}, ${1 - stretch}) rotate(${-angle}rad)`;
-      }
+      // `squash`; decays to round as the spring settles.
+      const speed = Math.hypot(springX.velocity, springY.velocity);
+      stretch = Math.min(speed * SQUASH_SPEED_SCALE, squash);
+    }
+    if (stretch > SQUASH_EPSILON) {
+      const angle = Math.atan2(springY.velocity, springX.velocity);
+      transform += ` rotate(${angle}rad) scale(${(1 + stretch) * compress}, ${(1 - stretch) * compress}) rotate(${-angle}rad)`;
+    } else if (compress !== 1) {
+      transform += ` scale(${compress})`;
     }
     frame.style.transform = transform;
     lens.syncTo(x, y);
@@ -110,12 +133,14 @@ export function createLensFollower(
     if (reducedMotion?.matches) {
       springX.snap();
       springY.snap();
+      pressSpring.snap();
     } else {
       springX.step(dt);
       springY.step(dt);
+      pressSpring.step(dt);
     }
     write(springX.value, springY.value);
-    if (win && (!springX.settled || !springY.settled)) {
+    if (win && (!springX.settled || !springY.settled || !pressSpring.settled)) {
       rafId = win.requestAnimationFrame(tick);
     } else {
       rafId = undefined;
@@ -161,6 +186,11 @@ export function createLensFollower(
         springX.damping = config.damping;
         springY.damping = config.damping;
       }
+    },
+    press(level) {
+      if (pressScale === 0) return;
+      pressSpring.target = Math.min(1, Math.max(0, level));
+      wake();
     },
     destroy() {
       destroyed = true;
@@ -241,6 +271,7 @@ export function makeLensDraggable(
     if (grabIntensity !== 1) {
       lens.setIntensity(grabIntensity);
     }
+    follower.press(1);
     // Hold the backdrop content still for the drag so a mutating backdrop
     // cannot trigger a full clone rebuild on each frame.
     if (freezeContent) {
@@ -260,6 +291,7 @@ export function makeLensDraggable(
     active = false;
     frame.releasePointerCapture?.(event.pointerId);
     lens.setIntensity(1);
+    follower.press(0);
     if (freezeContent) {
       lens.unfreeze();
     }
