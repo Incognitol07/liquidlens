@@ -1,5 +1,6 @@
 import {
   computeDisplacementField,
+  createLensFollower,
   createLiquidLens,
   performanceTier,
   presets,
@@ -7,6 +8,7 @@ import {
   renderSpecularToCanvas,
   resolveShape,
   Spring,
+  type LensFollower,
   type LensPresetName,
   type LensShapeName,
   type LiquidLens,
@@ -231,10 +233,13 @@ new ResizeObserver(() => {
 // resolution while the size springs are in motion, with one crisp full-
 // resolution pass once everything settles.
 
-const target = { x: 0, y: 0 }; // drag offset from center, set by the pointer
-const springX = new Spring(0, num("stiffness"), num("damping"));
-const springY = new Spring(0, num("stiffness"), num("damping"));
-const press = new Spring(0, 550, 20);
+// The orb's drag offset from the backdrop center, set by the pointer. The
+// package follower (created at init) springs the frame to (center + offset),
+// owning its transform plus the squash-and-stretch and press squish — the
+// same liquid feel the library now ships, dogfooded here instead of
+// hand-rolled.
+const dragOffset = { x: 0, y: 0 };
+let orbFollow: LensFollower | undefined;
 
 const geomW = new Spring(num("width"), 170, 16);
 const geomH = new Spring(num("height"), 170, 16);
@@ -343,34 +348,18 @@ function frameRadiusCss(): string {
   }
 }
 
-function applyTransform(): void {
-  const left = (backgroundW - geomW.value) / 2 + springX.value;
-  const top = (backgroundH - geomH.value) / 2 + springY.value;
-
-  // Squash-and-stretch along the direction of travel.
-  const speed = Math.hypot(springX.velocity, springY.velocity);
-  const stretch = Math.min(speed * 0.00035, 0.12);
-  const angle = speed > 1 ? Math.atan2(springY.velocity, springX.velocity) : 0;
-
-  // Pressing squishes the frame slightly while the refraction swells.
-  const squish = 1 - 0.05 * press.value;
-  const scaleX = (1 + stretch) * squish;
-  const scaleY = (1 - stretch) * squish;
-
-  lensEl.style.transform =
-    `translate(${left}px, ${top}px) ` +
-    `rotate(${angle}rad) scale(${scaleX}, ${scaleY}) rotate(${-angle}rad)`;
-  // The lens sits at the backdrop's origin and moves by transform only, so
-  // its offset is exactly (left, top); syncTo avoids measuring layout.
-  lens?.syncTo(left, top);
+/** The orb's absolute top-left = backdrop center for the current size, plus the drag offset. */
+function orbTarget(): { x: number; y: number } {
+  return {
+    x: (backgroundW - geomW.value) / 2 + dragOffset.x,
+    y: (backgroundH - geomH.value) / 2 + dragOffset.y,
+  };
 }
 
 function tick(now: number): void {
   const dt = Math.min((now - lastTime) / 1000, 1 / 30);
   lastTime = now;
 
-  springX.target = target.x;
-  springY.target = target.y;
   geomW.target = num("width");
   geomH.target = num("height");
   geomR.target = num("borderRadius");
@@ -380,18 +369,9 @@ function tick(now: number): void {
   menuH.target = menuTarget.h;
   menuR.target = menuTarget.r;
 
-  const springs = [
-    springX,
-    springY,
-    press,
-    geomW,
-    geomH,
-    geomR,
-    menuW,
-    menuH,
-    menuR,
-    menuPress,
-  ];
+  // The orb's own motion (position, squash, press) runs in the package
+  // follower's loop; this loop drives the geometry and menu morphs.
+  const springs = [geomW, geomH, geomR, menuW, menuH, menuR, menuPress];
   if (reducedMotion.matches) {
     // No wobble, stretch, swell, or morph tween for users who asked for
     // less motion; everything jumps straight to its target.
@@ -419,6 +399,12 @@ function tick(now: number): void {
     );
     refreshPreviews(0.5);
     needsFinalPass = true;
+    // Keep the orb centered as the backdrop center shifts with the size,
+    // unless the user is dragging it (then the follower owns its position).
+    if (!dragging) {
+      const c = orbTarget();
+      orbFollow?.set(c.x, c.y);
+    }
   }
 
   // Menu morph: resize the menu frame and regenerate maps cheaply.
@@ -456,14 +442,8 @@ function tick(now: number): void {
     menuExpandedContent.style.transform = `translateY(${-6 * (1 - optionsIn)}px)`;
   }
 
-  applyTransform();
-  lens?.setIntensity(1 + 0.9 * press.value);
-
-  // The glass squishes under the pointer and gulps while its shape is in
-  // flux: refraction swells with press and morph speed, relaxing to rest as
-  // the springs settle. setIntensity is a no-op on repeats and pinned by
-  // the lens under reduced motion. The press scale is decorative, so it is
-  // deliberately not fed into the lens's backdrop offset.
+  // The menu glass gulps while its shape is in flux: refraction swells with
+  // press and morph speed, relaxing to rest as the springs settle.
   menuEl.style.transform = `scale(${1 - 0.045 * menuPress.value})`;
   menuLens?.setIntensity(
     1 +
@@ -471,7 +451,7 @@ function tick(now: number): void {
       Math.min(Math.hypot(menuW.velocity, menuH.velocity) * 0.0006, 0.8),
   );
 
-  if (dragging || springs.some((s) => !s.settled)) {
+  if (springs.some((s) => !s.settled)) {
     rafId = requestAnimationFrame(tick);
   } else {
     if (needsFinalPass) {
@@ -583,32 +563,40 @@ lensEl.addEventListener("pointerdown", (event) => {
   lensEl.setPointerCapture(event.pointerId);
   lensEl.style.cursor = "grabbing";
   dragging = true;
-  press.target = 1;
+  // Press squish + refraction swell come from the package follower and the
+  // lens; the follower's loop drives the orb's motion, so no debug wake here.
+  orbFollow?.press(1);
+  lens?.setIntensity(1.9);
   if (lowTier) {
     // Every frame of the drag re-rasters the whole filter, so shed the
-    // expensive passes for its duration; aberration is invisible on a
-    // moving lens anyway. The settle pass restores the sliders' look.
+    // expensive passes for its duration; aberration is invisible on a moving
+    // lens anyway. Restored on release.
     lens?.update({ aberration: 0, blur: 0 });
-    needsFinalPass = true;
   }
-  wake();
 
-  const grabX = event.clientX - target.x;
-  const grabY = event.clientY - target.y;
+  // Grab offset against the follower's live position, so picking the orb up
+  // mid-wobble doesn't make it jump.
+  const grabX = event.clientX - (orbFollow?.x ?? 0);
+  const grabY = event.clientY - (orbFollow?.y ?? 0);
 
   const onMove = (moveEvent: PointerEvent) => {
-    const maxX = (backgroundW - geomW.value) / 2;
-    const maxY = (backgroundH - geomH.value) / 2;
-    target.x = clamp(moveEvent.clientX - grabX, -maxX, maxX);
-    target.y = clamp(moveEvent.clientY - grabY, -maxY, maxY);
+    const x = clamp(moveEvent.clientX - grabX, 0, backgroundW - geomW.value);
+    const y = clamp(moveEvent.clientY - grabY, 0, backgroundH - geomH.value);
+    // Remember the offset from center so a later size morph re-centers correctly.
+    dragOffset.x = x - (backgroundW - geomW.value) / 2;
+    dragOffset.y = y - (backgroundH - geomH.value) / 2;
+    orbFollow?.to(x, y);
   };
 
   const onUp = (upEvent: PointerEvent) => {
     lensEl.releasePointerCapture(upEvent.pointerId);
     lensEl.style.cursor = "grab";
     dragging = false;
-    press.target = 0;
-    wake();
+    orbFollow?.press(0);
+    lens?.setIntensity(1);
+    if (lowTier) {
+      lens?.update(currentOptions());
+    }
     lensEl.removeEventListener("pointermove", onMove);
     lensEl.removeEventListener("pointerup", onUp);
     lensEl.removeEventListener("pointercancel", onUp);
@@ -671,14 +659,7 @@ for (const id of ids) {
     if (GEOMETRY_IDS.includes(id)) {
       wake();
     } else if (id === "stiffness" || id === "damping") {
-      const val = num(id);
-      if (id === "stiffness") {
-        springX.stiffness = val;
-        springY.stiffness = val;
-      } else {
-        springX.damping = val;
-        springY.damping = val;
-      }
+      orbFollow?.configure({ stiffness: num("stiffness"), damping: num("damping") });
     } else {
       lens?.update(currentOptions());
       refreshPreviews();
@@ -760,8 +741,16 @@ refreshLabels();
 lensEl.style.width = `${geomW.value}px`;
 lensEl.style.height = `${geomH.value}px`;
 lensEl.style.borderRadius = frameRadiusCss();
-applyTransform();
 lens = createLiquidLens(lensEl, background, currentOptions());
+// The orb's motion is the package's, not hand-rolled: position spring-follow
+// plus the velocity squash-and-stretch and press squish the library ships.
+orbFollow = createLensFollower(lensEl, lens, {
+  stiffness: num("stiffness"),
+  damping: num("damping"),
+  squash: 0.12,
+  pressScale: 0.05,
+  initial: orbTarget(),
+});
 refreshPreviews();
 refreshExport();
 
