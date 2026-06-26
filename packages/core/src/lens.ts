@@ -22,6 +22,21 @@ export interface LiquidLensOptions {
   lightAngle?: number;
   /** 0..1: strength of the specular rim highlight (default 1) */
   specular?: number;
+  /** CSS color of the specular highlight (default white) */
+  specularColor?: string;
+  /**
+   * Tightness of the specular hot spot (default 10). Higher gives a smaller,
+   * glossier highlight; lower a softer, broader sheen.
+   */
+  specularSharpness?: number;
+  /**
+   * CSS color overlaid on the refracted content to tint the glass, like
+   * smoked or colored glass. Unset means no tint. Pair it with a matching
+   * frame `background` if you want the tint visible before the glass is ready.
+   */
+  tint?: string;
+  /** 0..1: strength of the tint overlay (default 0.2) */
+  tintOpacity?: number;
   /** Corner radius in px; defaults to the frame's computed border-radius */
   borderRadius?: number;
   /**
@@ -116,7 +131,18 @@ export interface LiquidLens {
   destroy(): void;
 }
 
-type ResolvedOptions = Required<Omit<LiquidLensOptions, "borderRadius" | "onReady" | "shape">>;
+type ResolvedOptions = Required<
+  Omit<
+    LiquidLensOptions,
+    | "borderRadius"
+    | "onReady"
+    | "shape"
+    | "specularColor"
+    | "specularSharpness"
+    | "tint"
+    | "tintOpacity"
+  >
+>;
 
 /**
  * Defaults adapt to the device: the full preset where there is CPU headroom
@@ -561,6 +587,10 @@ export function createLiquidLens(
         saturation: settings.saturation,
         lightAngle: settings.lightAngle,
         specular: settings.specular,
+        specularColor: settings.specularColor,
+        specularSharpness: settings.specularSharpness,
+        tint: settings.tint,
+        tintOpacity: settings.tintOpacity,
       },
       resolution,
     );

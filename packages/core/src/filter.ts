@@ -17,6 +17,8 @@ const CHANNEL_MATRICES = {
 const ABERRATION_EPSILON = 0.0005;
 /** Below this distance from 1, the saturate pass changes nothing visible. */
 const SATURATION_EPSILON = 0.001;
+/** Strength of the color tint when one is set but no opacity is given. */
+const DEFAULT_TINT_OPACITY = 0.2;
 
 /** The optical (non-geometry) knobs of the glass effect. */
 export interface GlassEffectOptions {
@@ -40,6 +42,20 @@ export interface GlassEffectOptions {
    * 0 removes the highlight image and blend pass from the filter entirely.
    */
   specular: number;
+  /** CSS color of the specular highlight (default white). */
+  specularColor?: string;
+  /** Directional exponent of the highlight; higher is a tighter hot spot. */
+  specularSharpness?: number;
+  /**
+   * CSS color overlaid on the refracted content to tint the glass. When
+   * unset, no tint pass is added to the filter.
+   */
+  tint?: string;
+  /**
+   * 0..1: strength of the tint overlay (default 0.2). 0 removes the tint
+   * pass entirely.
+   */
+  tintOpacity?: number;
 }
 
 export interface GlassFilterOptions extends LensParams, GlassEffectOptions {}
@@ -116,6 +132,7 @@ interface PipelineConfig {
   split: boolean;
   blur: boolean;
   saturate: boolean;
+  tint: boolean;
   specular: boolean;
 }
 
@@ -124,6 +141,7 @@ function sameConfig(a: PipelineConfig, b: PipelineConfig): boolean {
     a.split === b.split &&
     a.blur === b.blur &&
     a.saturate === b.saturate &&
+    a.tint === b.tint &&
     a.specular === b.specular
   );
 }
@@ -136,6 +154,8 @@ interface PipelineHandles {
   displacements: SVGElement[];
   blur?: SVGElement;
   saturate?: SVGElement;
+  /** feFlood whose color/opacity carry the tint, when the tint pass is on */
+  tintFlood?: SVGElement;
 }
 
 /**
@@ -264,6 +284,32 @@ function buildPipeline(
     current = "glass";
   }
 
+  // The color tint: a flood of the tint color, clipped to the refracted
+  // content's alpha so it never bleeds into the rim overshoot, then laid
+  // over the content. Sits under the specular so the highlight stays on top.
+  let tintFlood: SVGElement | undefined;
+  if (config.tint) {
+    tintFlood = fe("feFlood", {
+      "flood-color": "#000000",
+      "flood-opacity": "0",
+      result: "tint-flood",
+    });
+    fe("feComposite", {
+      in: "tint-flood",
+      in2: current,
+      operator: "in",
+      result: "tint-clip",
+    });
+    const merge = fe("feMerge", { result: "tinted" });
+    const base = doc.createElementNS(SVG_NS, "feMergeNode");
+    base.setAttribute("in", current);
+    merge.appendChild(base);
+    const top = doc.createElementNS(SVG_NS, "feMergeNode");
+    top.setAttribute("in", "tint-clip");
+    merge.appendChild(top);
+    current = "tinted";
+  }
+
   // The specular rim light, screen-blended so it brightens like a real
   // highlight instead of hazing like an overlay. When omitted, the last
   // primitive above is the filter's output.
@@ -271,7 +317,15 @@ function buildPipeline(
     fe("feBlend", { in: current, in2: "specular", mode: "screen" });
   }
 
-  return { config, mapImage, specularImage: config.specular ? specularImage : undefined, displacements, blur, saturate };
+  return {
+    config,
+    mapImage,
+    specularImage: config.specular ? specularImage : undefined,
+    displacements,
+    blur,
+    saturate,
+    tintFlood,
+  };
 }
 
 /** Points an feImage at a canvas's current content, stretched to width x height px. */
@@ -311,6 +365,7 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
     split: true,
     blur: true,
     saturate: true,
+    tint: false,
     specular: true,
   });
   doc.body.appendChild(shell.svg);
@@ -374,10 +429,12 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       shell.filter.setAttribute("width", `${100 + 2 * pctX}%`);
       shell.filter.setAttribute("height", `${100 + 2 * pctY}%`);
 
+      const tintOpacity = options.tintOpacity ?? DEFAULT_TINT_OPACITY;
       const config: PipelineConfig = {
         split: options.aberration > ABERRATION_EPSILON,
         blur: options.blur > 0,
         saturate: Math.abs(options.saturation - 1) > SATURATION_EPSILON,
+        tint: options.tint != null && tintOpacity > 0,
         specular: options.specular > 0,
       };
       if (!sameConfig(config, pipeline.config)) {
@@ -419,13 +476,19 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
 
       if (pipeline.specularImage) {
         const nextSpecularKey =
-          `${geometry}|${options.lightAngle}|${options.specular}`;
+          `${geometry}|${options.lightAngle}|${options.specular}|` +
+          `${options.specularColor ?? ""}|${options.specularSharpness ?? ""}`;
         if (nextSpecularKey !== specularKey) {
           specularKey = nextSpecularKey;
           renderSpecularToCanvas(
             specularCanvas,
             options,
-            { lightAngle: options.lightAngle, strength: options.specular },
+            {
+              lightAngle: options.lightAngle,
+              strength: options.specular,
+              color: options.specularColor,
+              sharpness: options.specularSharpness,
+            },
             resolution,
           );
           specularDataUrl = applyImage(pipeline.specularImage, specularCanvas, options.width, options.height);
@@ -442,6 +505,11 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
 
       pipeline.blur?.setAttribute("stdDeviation", String(options.blur));
       pipeline.saturate?.setAttribute("values", String(options.saturation));
+
+      if (pipeline.tintFlood && options.tint != null) {
+        pipeline.tintFlood.setAttribute("flood-color", options.tint);
+        pipeline.tintFlood.setAttribute("flood-opacity", String(tintOpacity));
+      }
     },
 
     setIntensity(factor: number): void {
