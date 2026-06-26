@@ -41,9 +41,9 @@ export interface LiquidLensOptions {
   borderRadius?: number;
   /**
    * The lens silhouette, followed by both the refraction and the specular
-   * rim. A built-in name — `"rect"` (rounded rectangle, the default, using
-   * `borderRadius`), `"pill"` (fully rounded ends), `"ellipse"`, or
-   * `"squircle"` — or a custom {@link LensShape} signed-distance sampler for
+   * rim. Either a built-in name (`"rect"`, a rounded rectangle, the default,
+   * using `borderRadius`; `"pill"` for fully rounded ends; `"ellipse"`; or
+   * `"squircle"`) or a custom {@link LensShape} signed-distance sampler for
    * any silhouette you can describe. `borderRadius` is ignored unless the
    * shape is a rounded rectangle.
    */

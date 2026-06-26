@@ -46,8 +46,8 @@ export interface LensFollowController {
 
 /**
  * Springs a lens frame toward a moving target. The lens does not own its own
- * position — the element is positioned by a CSS transform, and `syncTo`
- * realigns the refraction to wherever it lands — so this hook is what turns
+ * position. The element is positioned by a CSS transform, and `syncTo`
+ * realigns the refraction to wherever it lands, so this hook is what turns
  * that instant alignment into liquid lag-and-wobble: it drives two springs in
  * a `requestAnimationFrame` loop, writing the frame's `transform` and calling
  * `syncTo` each frame, and stops once both springs settle.
@@ -61,7 +61,7 @@ export interface LensFollowController {
  * const frameRef = useRef<HTMLDivElement>(null);
  * const lens = useLiquidLens(frameRef, backdropRef, { preset: "lean" });
  * const follow = useLensFollow(frameRef, lens, { stiffness: 180, damping: 18 });
- * // follow.to(x, y) from anywhere — a click, a layout change, a snap point
+ * // follow.to(x, y) from anywhere: a click, a layout change, a snap point
  */
 export function useLensFollow(
   frameRef: RefObject<HTMLElement | null>,

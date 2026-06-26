@@ -22,7 +22,7 @@ import {
 } from "react";
 
 // Re-export everything a react consumer needs so `@liquidlens/core` stays a
-// sealed implementation detail — importing it directly would be an undeclared
+// sealed implementation detail; importing it directly would be an undeclared
 // transitive dependency that only resolves under a hoisting package manager.
 export type {
   LiquidLensHandle,
@@ -81,12 +81,12 @@ const LENS_OPTION_KEYS = new Set<string>([
 
 /** Props people reach for that are not lens options, with where to go instead. */
 const NON_OPTION_HINTS = new Map<string, string>([
-  ["spring", "motion is not a lens option — use useDraggableLens / useLensFollow, or drive a Spring + syncTo yourself"],
-  ["damping", "spring damping is not a lens option — pass it to useDraggableLens / useLensFollow"],
-  ["stiffness", "spring stiffness is not a lens option — pass it to useDraggableLens / useLensFollow"],
-  ["mass", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
-  ["tension", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
-  ["friction", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
+  ["spring", "motion is not a lens option; use useDraggableLens / useLensFollow, or drive a Spring + syncTo yourself"],
+  ["damping", "spring damping is not a lens option; pass it to useDraggableLens / useLensFollow"],
+  ["stiffness", "spring stiffness is not a lens option; pass it to useDraggableLens / useLensFollow"],
+  ["mass", "not a lens option; tune motion via useDraggableLens / useLensFollow"],
+  ["tension", "not a lens option; tune motion via useDraggableLens / useLensFollow"],
+  ["friction", "not a lens option; tune motion via useDraggableLens / useLensFollow"],
 ]);
 
 /** Common DOM/React attributes to never flag (avoids near-miss false positives). */
@@ -155,7 +155,7 @@ function warnSuspectDomProps(domProps: Record<string, unknown>): void {
     if (near) {
       warnedProps.add(key);
       console.warn(
-        `[liquidlens] <LiquidLens> received unknown prop "${key}" — did you mean "${near}"? It was forwarded to the DOM unchanged.`,
+        `[liquidlens] <LiquidLens> received unknown prop "${key}". Did you mean "${near}"? It was forwarded to the DOM unchanged.`,
       );
     }
   }
@@ -275,7 +275,7 @@ export interface LiquidLensProps
   /**
    * The element type for the wrapper that lifts `children` above the glass
    * layers (default "div"). Set to `null` to render `children` with no
-   * wrapper at all — you then own keeping them stacked above the refraction
+   * wrapper at all, where you then own keeping them stacked above the refraction
    * (e.g. give them `position: relative; z-index: 1`).
    */
   contentAs?: ElementType | null;

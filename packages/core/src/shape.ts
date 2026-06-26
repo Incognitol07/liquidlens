@@ -11,8 +11,8 @@ export interface ShapeSample {
 
 /**
  * A lens silhouette expressed as a signed-distance sampler. `sample` writes
- * the signed distance and outward unit normal at (x, y) — measured from the
- * lens center, in CSS px — into `out` and returns it. Both the refraction
+ * the signed distance and outward unit normal at (x, y), measured from the
+ * lens center in CSS px, into `out` and returns it. Both the refraction
  * and the specular rim are derived from this single function, so any shape
  * the sampler describes is rendered consistently.
  *
@@ -26,7 +26,7 @@ export interface LensShape {
   /**
    * Whether the shape is mirror-symmetric across both the horizontal and
    * vertical center axes. When true (the default), the maps are sampled in
-   * one quadrant and mirrored — four times cheaper to build. Set false for a
+   * one quadrant and mirrored, four times cheaper to build. Set false for a
    * custom shape that is not doubly symmetric, so it is sampled in full and
    * rendered correctly. Both built-in shapes are symmetric.
    */
@@ -61,7 +61,7 @@ export function roundedRectShape(borderRadius: number): LensShape {
  * 2 (lower exponents pinch into a concave star, which is not a lens).
  *
  * The outward normal is the exact analytic gradient. The signed distance is
- * the radial distance to the boundary along the sample's own ray — exact on
+ * the radial distance to the boundary along the sample's own ray: exact on
  * the axes, a slight over-estimate elsewhere, which only narrows the rim
  * band a touch near the flattest part of the curve. Accuracy in the deep
  * interior does not matter: those pixels are past the rim and carry no

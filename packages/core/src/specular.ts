@@ -16,7 +16,7 @@ export interface SpecularOptions {
   strength: number;
   /**
    * CSS color of the highlight (default white). Screen-blended over the
-   * refracted content, so it brightens toward this color — a warm white
+   * refracted content, so it brightens toward this color. A warm white
    * reads as sunlight, a cool tint as a cold rim light.
    */
   color?: string;

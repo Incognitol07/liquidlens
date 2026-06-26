@@ -113,7 +113,7 @@ describe("computeDisplacementField", () => {
     // A rounded rect whose center is shifted right: its left rim sits inside
     // the frame while the right rim falls outside it, so a correct field is
     // not mirror-symmetric. Sampling the same shape under the symmetric fast
-    // path (which mirrors one quadrant) must give a different — wrong — field.
+    // path (which mirrors one quadrant) must give a different, wrong field.
     const sample = (x: number, y: number, hw: number, hh: number, out: any) =>
       sampleRoundedRect(x - 15, y, hw, hh, 8, out);
     const correct = computeDisplacementField({
