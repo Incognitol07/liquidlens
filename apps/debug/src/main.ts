@@ -5,8 +5,10 @@ import {
   presets,
   renderDisplacementMapToCanvas,
   renderSpecularToCanvas,
+  resolveShape,
   Spring,
   type LensPresetName,
+  type LensShapeName,
   type LiquidLens,
   type LiquidLensOptions,
 } from "@liquidlens/core";
@@ -61,6 +63,8 @@ const ids = [
   "saturation",
   "lightAngle",
   "specular",
+  "specularSharpness",
+  "tintOpacity",
   "stiffness",
   "damping",
 ] as const;
@@ -95,11 +99,21 @@ function formatValue(id: ControlId, value: number): string {
       return `${value.toFixed(2)}×`;
     case "stiffness":
     case "damping":
+    case "specularSharpness":
       return `${Math.round(value)}`;
     default:
       return value.toFixed(2);
   }
 }
+
+// Non-numeric controls: the lens shape (a button group) and the two color
+// pickers. Shape lives here rather than in `ids` because it is not a slider.
+let shapeName: LensShapeName = "rect";
+const shapeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>(".shape-btn"),
+);
+const tintColorInput = document.getElementById("tint") as HTMLInputElement;
+const specularColorInput = document.getElementById("specularColor") as HTMLInputElement;
 
 /** Updates each control's value readout and its track-fill percentage. */
 function refreshLabels(): void {
@@ -287,12 +301,13 @@ const MENU_OPTIONS = {
 };
 
 /** Lens options at this instant; borderRadius follows the animated spring. */
-function currentOptions(): Required<Omit<LiquidLensOptions, "onReady">> {
+function currentOptions(): LiquidLensOptions {
   return {
     respectReducedMotion: true,
     trackScroll: true,
     trackContent: true,
     borderRadius: geomR.value,
+    shape: shapeName,
     depth: num("depth"),
     curvature: num("curvature"),
     splay: num("splay"),
@@ -301,7 +316,28 @@ function currentOptions(): Required<Omit<LiquidLensOptions, "onReady">> {
     saturation: num("saturation"),
     lightAngle: num("lightAngle"),
     specular: num("specular"),
+    specularColor: specularColorInput.value,
+    specularSharpness: num("specularSharpness"),
+    tint: tintColorInput.value,
+    tintOpacity: num("tintOpacity"),
   };
+}
+
+/**
+ * CSS clip for the frame. The `shape` option bends the light into a
+ * silhouette but does not clip the element, so the demo matches the two up:
+ * ellipse and pill get a derived border-radius, rect and squircle follow the
+ * radius slider.
+ */
+function frameRadiusCss(): string {
+  switch (shapeName) {
+    case "ellipse":
+      return "50%";
+    case "pill":
+      return `${Math.min(geomW.value, geomH.value) / 2}px`;
+    default:
+      return `${geomR.value}px`;
+  }
 }
 
 function applyTransform(): void {
@@ -373,7 +409,7 @@ function tick(now: number): void {
     appliedGeom.r = geomR.value;
     lensEl.style.width = `${geomW.value}px`;
     lensEl.style.height = `${geomH.value}px`;
-    lensEl.style.borderRadius = `${geomR.value}px`;
+    lensEl.style.borderRadius = frameRadiusCss();
     lens?.update(
       { ...currentOptions(), ...(lowTier ? { aberration: 0, blur: 0 } : null) },
       0.5,
@@ -464,26 +500,30 @@ const mobileLayout = matchMedia("(max-width: 768px)");
 
 function refreshPreviews(resolution = 1): void {
   const options = currentOptions();
-  const shape = {
+  const borderRadius = options.borderRadius ?? geomR.value;
+  const params = {
     width: Math.round(geomW.value),
     height: Math.round(geomH.value),
-    borderRadius: options.borderRadius,
-    depth: options.depth,
-    curvature: options.curvature,
-    splay: options.splay,
+    borderRadius,
+    shape: resolveShape(shapeName, borderRadius),
+    depth: options.depth ?? 0,
+    curvature: options.curvature ?? 0,
+    splay: options.splay ?? 0,
   };
 
-  const field = computeDisplacementField(shape, resolution);
-  renderDisplacementMapToCanvas(mapCanvas, field, { scale: Math.max(options.depth, 1) });
-  mapCanvas.style.width = `${shape.width}px`;
-  mapCanvas.style.height = `${shape.height}px`;
+  const field = computeDisplacementField(params, resolution);
+  renderDisplacementMapToCanvas(mapCanvas, field, { scale: Math.max(params.depth, 1) });
+  mapCanvas.style.width = `${params.width}px`;
+  mapCanvas.style.height = `${params.height}px`;
 
-  renderSpecularToCanvas(specularCanvas, shape, {
-    lightAngle: options.lightAngle,
-    strength: options.specular,
+  renderSpecularToCanvas(specularCanvas, params, {
+    lightAngle: options.lightAngle ?? 0,
+    strength: options.specular ?? 0,
+    color: options.specularColor,
+    sharpness: options.specularSharpness,
   }, resolution);
-  specularCanvas.style.width = `${shape.width}px`;
-  specularCanvas.style.height = `${shape.height}px`;
+  specularCanvas.style.width = `${params.width}px`;
+  specularCanvas.style.height = `${params.height}px`;
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +635,27 @@ for (const id of ids) {
   });
 }
 
+// Shape buttons switch the optical silhouette and re-clip the frame to match.
+for (const button of shapeButtons) {
+  button.addEventListener("click", () => {
+    shapeName = button.dataset.shape as LensShapeName;
+    for (const other of shapeButtons) {
+      other.classList.toggle("is-active", other === button);
+    }
+    lensEl.style.borderRadius = frameRadiusCss();
+    lens?.update(currentOptions());
+    refreshPreviews();
+  });
+}
+
+// Color pickers apply immediately, like the optical sliders.
+for (const input of [tintColorInput, specularColorInput]) {
+  input.addEventListener("input", () => {
+    lens?.update(currentOptions());
+    refreshPreviews();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Init: size the frame before creating the lens so the first generated map
 // is correct, then hand the visual layers over to liquidlens.
@@ -602,7 +663,7 @@ for (const id of ids) {
 refreshLabels();
 lensEl.style.width = `${geomW.value}px`;
 lensEl.style.height = `${geomH.value}px`;
-lensEl.style.borderRadius = `${geomR.value}px`;
+lensEl.style.borderRadius = frameRadiusCss();
 applyTransform();
 lens = createLiquidLens(lensEl, background, currentOptions());
 refreshPreviews();
@@ -709,7 +770,20 @@ optReset.addEventListener("click", (event) => {
 
 optRandomize.addEventListener("click", (event) => {
   event.stopPropagation();
+
+  // Shape first (but not the colors), so the slider dispatches below already
+  // pick up the new shape through currentOptions().
+  const randomShape = shapeButtons[Math.floor(Math.random() * shapeButtons.length)];
+  shapeName = randomShape.dataset.shape as LensShapeName;
+  for (const other of shapeButtons) {
+    other.classList.toggle("is-active", other === randomShape);
+  }
+  lensEl.style.borderRadius = frameRadiusCss();
+
   for (const id of ids) {
+    // Leave the tint opacity where it is; randomizing it turns tint on/off
+    // unexpectedly.
+    if (id === "tintOpacity") continue;
     const input = inputs[id];
     if (!input) continue;
     const min = Number(input.min);
@@ -722,4 +796,8 @@ optRandomize.addEventListener("click", (event) => {
     input.value = String(randomValue);
     input.dispatchEvent(new Event("input"));
   }
+
+  // Apply the shape even if no immediate-update slider changed.
+  lens?.update(currentOptions());
+  refreshPreviews();
 });
