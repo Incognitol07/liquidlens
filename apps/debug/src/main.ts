@@ -203,6 +203,9 @@ const mapCanvas = document.getElementById("map-preview") as HTMLCanvasElement;
 const specularCanvas = document.getElementById("specular-preview") as HTMLCanvasElement;
 const background = document.getElementById("background") as HTMLElement;
 const lensEl = document.getElementById("lens") as HTMLElement;
+const exportCode = document.getElementById("export-code") as HTMLPreElement;
+const exportCopy = document.getElementById("export-copy") as HTMLButtonElement;
+const copyOptions = document.getElementById("copy-options") as HTMLButtonElement;
 
 let lens: LiquidLens | undefined;
 
@@ -524,6 +527,54 @@ function refreshPreviews(resolution = 1): void {
   }, resolution);
   specularCanvas.style.width = `${params.width}px`;
   specularCanvas.style.height = `${params.height}px`;
+
+  refreshExport();
+}
+
+// ---------------------------------------------------------------------------
+// Export: a live <LiquidLens> snippet for the current settings. The element's
+// size and silhouette go in `style` (the lens reads its border-radius from
+// there); everything else is a prop, with no-op defaults omitted so the
+// snippet stays to the point.
+
+/** Builds a copy-pasteable React snippet from the current controls. */
+function buildReactSnippet(): string {
+  const props: string[] = [];
+  const addNum = (name: string, value: number): number =>
+    props.push(`  ${name}={${value}}`);
+  const addStr = (name: string, value: string): number =>
+    props.push(`  ${name}="${value}"`);
+
+  const style =
+    `{ width: ${Math.round(geomW.value)}, height: ${Math.round(geomH.value)}, ` +
+    `borderRadius: "${frameRadiusCss()}" }`;
+  props.push(`  style={${style}}`);
+
+  if (shapeName !== "rect") addStr("shape", shapeName);
+  addNum("depth", num("depth"));
+  addNum("curvature", num("curvature"));
+  addNum("splay", num("splay"));
+  addNum("aberration", num("aberration"));
+  addNum("blur", num("blur"));
+  addNum("saturation", num("saturation"));
+  addNum("lightAngle", num("lightAngle"));
+  addNum("specular", num("specular"));
+  if (specularColorInput.value.toLowerCase() !== "#ffffff") {
+    addStr("specularColor", specularColorInput.value);
+  }
+  if (num("specularSharpness") !== 10) {
+    addNum("specularSharpness", num("specularSharpness"));
+  }
+  if (num("tintOpacity") > 0) {
+    addStr("tint", tintColorInput.value);
+    addNum("tintOpacity", num("tintOpacity"));
+  }
+
+  return `<LiquidLens\n${props.join("\n")}\n>\n  {/* your content */}\n</LiquidLens>`;
+}
+
+function refreshExport(): void {
+  exportCode.textContent = buildReactSnippet();
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +706,49 @@ for (const input of [tintColorInput, specularColorInput]) {
     refreshPreviews();
   });
 }
+
+// Both copy affordances write the same live snippet to the clipboard; each
+// shows its own quiet confirmation and reverts after a beat.
+async function writeSnippet(): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(buildReactSnippet());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Header icon: swap to the tick (reusing the icon-swap animation), then back.
+let copyIconTimer: number | undefined;
+copyOptions.addEventListener("click", async () => {
+  if (!(await writeSnippet())) return;
+  copyOptions.dataset.state = "b";
+  clearTimeout(copyIconTimer);
+  copyIconTimer = window.setTimeout(() => {
+    copyOptions.dataset.state = "a";
+  }, 1400);
+});
+
+// Disclosure button: label flips to "Copied", falling back to selecting the
+// code if the clipboard is blocked (insecure context).
+let copyBtnTimer: number | undefined;
+exportCopy.addEventListener("click", async () => {
+  if (!(await writeSnippet())) {
+    const range = document.createRange();
+    range.selectNodeContents(exportCode);
+    const selection = getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return;
+  }
+  exportCopy.textContent = "Copied";
+  exportCopy.classList.add("is-copied");
+  clearTimeout(copyBtnTimer);
+  copyBtnTimer = window.setTimeout(() => {
+    exportCopy.textContent = "Copy";
+    exportCopy.classList.remove("is-copied");
+  }, 1400);
+});
 
 // ---------------------------------------------------------------------------
 // Init: size the frame before creating the lens so the first generated map
