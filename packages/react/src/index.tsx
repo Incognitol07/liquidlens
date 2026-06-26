@@ -1,11 +1,14 @@
 import {
   createLiquidLens,
+  performanceTier,
   presets,
+  Spring,
   type LensPresetName,
   type LensShape,
   type LensShapeName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
+  type PerformanceTier,
 } from "@liquidlens/core";
 import {
   forwardRef,
@@ -18,8 +21,29 @@ import {
   type RefObject,
 } from "react";
 
-export type { LiquidLensHandle, LiquidLensOptions, LensPresetName, LensShape, LensShapeName };
-export { presets };
+// Re-export everything a react consumer needs so `@liquidlens/core` stays a
+// sealed implementation detail — importing it directly would be an undeclared
+// transitive dependency that only resolves under a hoisting package manager.
+export type {
+  LiquidLensHandle,
+  LiquidLensOptions,
+  LensPresetName,
+  LensShape,
+  LensShapeName,
+  PerformanceTier,
+};
+export { presets, performanceTier, Spring };
+
+export {
+  useLensFollow,
+  useDraggableLens,
+  type SpringConfig,
+  type LensFollowConfig,
+  type LensFollowController,
+  type DraggableLensConfig,
+  type DraggableLens,
+  type DraggableLensHandlers,
+} from "./follow";
 
 /**
  * Every key that `<LiquidLens>` consumes as a lens option rather than
@@ -48,6 +72,94 @@ const LENS_OPTION_KEYS = new Set<string>([
   "trackContent",
   "onReady",
 ]);
+
+// --- Dev-only guard against silently-swallowed props -----------------------
+// Anything not in LENS_OPTION_KEYS is forwarded to the DOM, so a misspelled
+// option or a motion prop that isn't one (spring/damping) dies quietly. In
+// development we name the likely mistakes; this is stripped in production
+// builds and never throws.
+
+/** Props people reach for that are not lens options, with where to go instead. */
+const NON_OPTION_HINTS = new Map<string, string>([
+  ["spring", "motion is not a lens option — use useDraggableLens / useLensFollow, or drive a Spring + syncTo yourself"],
+  ["damping", "spring damping is not a lens option — pass it to useDraggableLens / useLensFollow"],
+  ["stiffness", "spring stiffness is not a lens option — pass it to useDraggableLens / useLensFollow"],
+  ["mass", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
+  ["tension", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
+  ["friction", "not a lens option — tune motion via useDraggableLens / useLensFollow"],
+]);
+
+/** Common DOM/React attributes to never flag (avoids near-miss false positives). */
+const KNOWN_DOM_PROPS = new Set<string>([
+  "className", "style", "id", "title", "role", "tabIndex", "hidden", "dir",
+  "lang", "slot", "draggable", "translate", "name", "type", "value",
+  "placeholder", "htmlFor", "href", "src", "alt", "rel", "target",
+]);
+
+// Declared (not imported from @types/node) so the literal `process.env.NODE_ENV`
+// survives to the consumer's bundler, which dead-code-eliminates this whole
+// branch from their production build.
+declare const process: { env: { NODE_ENV?: string } } | undefined;
+
+function isDevEnv(): boolean {
+  return typeof process !== "undefined" && process.env.NODE_ENV !== "production";
+}
+
+/** Levenshtein distance, used to catch single-character option typos. */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const row = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        prev + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      prev = temp;
+    }
+  }
+  return row[n];
+}
+
+/** The lens option a key is one typo away from, if any. */
+function nearestOption(key: string): string | undefined {
+  if (key.length < 5) return undefined;
+  for (const option of LENS_OPTION_KEYS) {
+    if (editDistance(key, option) <= 1) return option;
+  }
+  return undefined;
+}
+
+const warnedProps = new Set<string>();
+
+function warnSuspectDomProps(domProps: Record<string, unknown>): void {
+  if (!isDevEnv()) return;
+  for (const key of Object.keys(domProps)) {
+    if (warnedProps.has(key)) continue;
+    // Genuine DOM passthroughs: event handlers, data-/aria-, common attrs.
+    if (key.startsWith("on") || key.startsWith("data-") || key.startsWith("aria-")) continue;
+    if (KNOWN_DOM_PROPS.has(key)) continue;
+
+    const hint = NON_OPTION_HINTS.get(key);
+    if (hint) {
+      warnedProps.add(key);
+      console.warn(`[liquidlens] <LiquidLens> ignored prop "${key}": ${hint}.`);
+      continue;
+    }
+    const near = nearestOption(key);
+    if (near) {
+      warnedProps.add(key);
+      console.warn(
+        `[liquidlens] <LiquidLens> received unknown prop "${key}" — did you mean "${near}"? It was forwarded to the DOM unchanged.`,
+      );
+    }
+  }
+}
 
 export interface UseLiquidLensOptions extends LiquidLensOptions {
   /**
@@ -213,6 +325,7 @@ export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
         domProps[key] = value;
       }
     }
+    warnSuspectDomProps(domProps);
 
     const lensRef = useLiquidLens(frameRef, backdropRef, options);
 
