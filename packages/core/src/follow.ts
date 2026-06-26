@@ -6,6 +6,12 @@ import type { LiquidLens } from "./lens";
 const DEFAULT_STIFFNESS = 140;
 const DEFAULT_DAMPING = 14;
 
+// Maps spring speed (px/s) to stretch amount before the `squash` cap; tuned so
+// a brisk drag reaches the cap and a settled spring is round.
+const SQUASH_SPEED_SCALE = 0.00035;
+// Below this stretch the distortion is invisible; skip composing it.
+const SQUASH_EPSILON = 1e-3;
+
 export interface SpringConfig {
   /** Spring constant; higher snaps to the target faster (default 140). */
   stiffness?: number;
@@ -19,6 +25,16 @@ export interface SpringConfig {
 export interface LensFollowOptions extends SpringConfig {
   /** Where the frame starts, applied immediately (default 0, 0). */
   initial?: { x: number; y: number };
+  /**
+   * Velocity-driven squash-and-stretch (default 0, off). When > 0, the frame
+   * stretches along its direction of travel while the spring is in motion and
+   * relaxes back to round as it settles — the value is the maximum stretch
+   * (≈0.12 is lively). The distortion is applied to the frame's transform
+   * only; the refraction stays aligned, since `syncTo` is fed the translation
+   * alone. The lens frame needs its own stacking/transform context for this to
+   * read (a plain positioned element does).
+   */
+  squash?: number;
 }
 
 /**
@@ -62,6 +78,7 @@ export function createLensFollower(
   const win = frame.ownerDocument.defaultView;
   const springX = new Spring(options.initial?.x ?? 0, options.stiffness ?? DEFAULT_STIFFNESS, options.damping ?? DEFAULT_DAMPING);
   const springY = new Spring(options.initial?.y ?? 0, options.stiffness ?? DEFAULT_STIFFNESS, options.damping ?? DEFAULT_DAMPING);
+  const squash = Math.max(0, options.squash ?? 0);
 
   const reducedMotion = win?.matchMedia?.("(prefers-reduced-motion: reduce)");
   let rafId: number | undefined;
@@ -69,7 +86,21 @@ export function createLensFollower(
   let destroyed = false;
 
   const write = (x: number, y: number): void => {
-    frame.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    let transform = `translate3d(${x}px, ${y}px, 0)`;
+    if (squash > 0) {
+      // Stretch along the heading by the spring's current speed, capped at
+      // `squash`; decays to round as the spring settles. The refraction is
+      // NOT distorted — only the frame's transform carries the scale, and
+      // syncTo below gets the translation alone.
+      const vx = springX.velocity;
+      const vy = springY.velocity;
+      const stretch = Math.min(Math.hypot(vx, vy) * SQUASH_SPEED_SCALE, squash);
+      if (stretch > SQUASH_EPSILON) {
+        const angle = Math.atan2(vy, vx);
+        transform += ` rotate(${angle}rad) scale(${1 + stretch}, ${1 - stretch}) rotate(${-angle}rad)`;
+      }
+    }
+    frame.style.transform = transform;
     lens.syncTo(x, y);
   };
 
