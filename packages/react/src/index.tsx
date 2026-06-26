@@ -9,6 +9,7 @@ import {
   forwardRef,
   useEffect,
   useRef,
+  type CSSProperties,
   type ElementType,
   type HTMLAttributes,
   type ReactNode,
@@ -147,6 +148,21 @@ export interface LiquidLensProps
   as?: ElementType;
   /** Rendered above the glass layers (e.g. a button label). */
   children?: ReactNode;
+  /**
+   * The element type for the wrapper that lifts `children` above the glass
+   * layers (default "div"). Set to `null` to render `children` with no
+   * wrapper at all — you then own keeping them stacked above the refraction
+   * (e.g. give them `position: relative; z-index: 1`).
+   */
+  contentAs?: ElementType | null;
+  /** Class applied to the content wrapper. */
+  contentClassName?: string;
+  /**
+   * Style merged onto the content wrapper. Defaults to
+   * `{ position: "relative", zIndex: 1 }`; anything here overrides those, so
+   * you can turn the wrapper into a flex container, add padding, etc.
+   */
+  contentStyle?: CSSProperties;
 }
 
 /**
@@ -166,7 +182,10 @@ export interface LiquidLensProps
  * // lens.current?.setIntensity(1.5) on press
  */
 export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
-  function LiquidLens({ backdropRef, as, children, ...rest }, ref) {
+  function LiquidLens(
+    { backdropRef, as, children, contentAs, contentClassName, contentStyle, ...rest },
+    ref,
+  ) {
     const frameRef = useRef<HTMLElement | null>(null);
 
     // Split the remaining props: known lens-option keys configure the lens,
@@ -202,11 +221,29 @@ export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
     }, [ref, lensRef]);
 
     const Component = (as ?? "div") as ElementType;
+
+    let content: ReactNode = null;
+    if (children != null) {
+      if (contentAs === null) {
+        // Caller opted out of the wrapper and takes responsibility for
+        // stacking the children above the refraction layer.
+        content = children;
+      } else {
+        const ContentComponent = (contentAs ?? "div") as ElementType;
+        content = (
+          <ContentComponent
+            className={contentClassName}
+            style={{ position: "relative", zIndex: 1, ...contentStyle }}
+          >
+            {children}
+          </ContentComponent>
+        );
+      }
+    }
+
     return (
       <Component ref={frameRef} {...domProps}>
-        {children != null && (
-          <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
-        )}
+        {content}
       </Component>
     );
   },
