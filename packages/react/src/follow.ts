@@ -19,6 +19,8 @@ export type {
 export interface ReactLensFollower {
   to(x: number, y: number): void;
   set(x: number, y: number): void;
+  /** Set the press level (0..1) for the `pressScale` squish. */
+  press(level: number): void;
   readonly x: number;
   readonly y: number;
 }
@@ -49,6 +51,7 @@ export function useLensFollow(
     facadeRef.current = {
       to: (x, y) => followerRef.current?.to(x, y),
       set: (x, y) => followerRef.current?.set(x, y),
+      press: (level) => followerRef.current?.press(level),
       get x() {
         return followerRef.current?.x ?? 0;
       },
