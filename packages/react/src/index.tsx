@@ -9,14 +9,37 @@ import {
   forwardRef,
   useEffect,
   useRef,
-  type CSSProperties,
   type ElementType,
+  type HTMLAttributes,
   type ReactNode,
   type RefObject,
 } from "react";
 
 export type { LiquidLensHandle, LiquidLensOptions, LensPresetName };
 export { presets };
+
+/**
+ * Every key that `<LiquidLens>` consumes as a lens option rather than
+ * forwarding to the rendered element. Anything not listed here is treated
+ * as a DOM prop and spread onto the frame, so event handlers (`onPointerDown`),
+ * `id`, `aria-*`, `data-*`, etc. reach the element as expected.
+ */
+const LENS_OPTION_KEYS = new Set<string>([
+  "preset",
+  "depth",
+  "curvature",
+  "splay",
+  "aberration",
+  "blur",
+  "saturation",
+  "lightAngle",
+  "specular",
+  "borderRadius",
+  "respectReducedMotion",
+  "trackScroll",
+  "trackContent",
+  "onReady",
+]);
 
 export interface UseLiquidLensOptions extends LiquidLensOptions {
   /**
@@ -112,7 +135,9 @@ export function useLiquidLens(
   return lensRef;
 }
 
-export interface LiquidLensProps extends UseLiquidLensOptions {
+export interface LiquidLensProps
+  extends UseLiquidLensOptions,
+    HTMLAttributes<HTMLElement> {
   /**
    * Ref to the element behind the lens whose content gets refracted.
    * Omit it to refract the nearest ancestor that paints a background.
@@ -120,8 +145,6 @@ export interface LiquidLensProps extends UseLiquidLensOptions {
   backdropRef?: RefObject<HTMLElement | null>;
   /** The element type to render as the glass frame (default "div"). */
   as?: ElementType;
-  className?: string;
-  style?: CSSProperties;
   /** Rendered above the glass layers (e.g. a button label). */
   children?: ReactNode;
 }
@@ -143,8 +166,23 @@ export interface LiquidLensProps extends UseLiquidLensOptions {
  * // lens.current?.setIntensity(1.5) on press
  */
 export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
-  function LiquidLens({ backdropRef, as, className, style, children, ...options }, ref) {
+  function LiquidLens({ backdropRef, as, children, ...rest }, ref) {
     const frameRef = useRef<HTMLElement | null>(null);
+
+    // Split the remaining props: known lens-option keys configure the lens,
+    // everything else (className, style, event handlers, id, aria-*, data-*)
+    // is forwarded to the rendered element.
+    const options: UseLiquidLensOptions = {};
+    const domProps: Record<string, unknown> = {};
+    for (const key of Object.keys(rest)) {
+      const value = (rest as Record<string, unknown>)[key];
+      if (LENS_OPTION_KEYS.has(key)) {
+        (options as Record<string, unknown>)[key] = value;
+      } else {
+        domProps[key] = value;
+      }
+    }
+
     const lensRef = useLiquidLens(frameRef, backdropRef, options);
 
     // Hand the lens handle to the consumer's ref. Declared after
@@ -165,7 +203,7 @@ export const LiquidLens = forwardRef<LiquidLensHandle, LiquidLensProps>(
 
     const Component = (as ?? "div") as ElementType;
     return (
-      <Component ref={frameRef} className={className} style={style}>
+      <Component ref={frameRef} {...domProps}>
         {children != null && (
           <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
         )}
