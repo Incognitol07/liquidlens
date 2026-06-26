@@ -152,6 +152,14 @@ export interface DraggableLensOptions extends LensFollowOptions {
    * Receives and returns a position in the frame's transform coordinate space.
    */
   clamp?: (position: { x: number; y: number }) => { x: number; y: number };
+  /**
+   * Freeze backdrop-content rebuilds for the duration of the drag (default
+   * true) — see {@link LiquidLens.freeze}. A no-op for a static backdrop; for
+   * a backdrop that mutates each frame it keeps the drag transform-only
+   * instead of paying a full clone rebuild per frame. Set false to keep the
+   * refraction's content live while dragging.
+   */
+  freezeContent?: boolean;
 }
 
 export interface DraggableLens {
@@ -180,12 +188,13 @@ export interface DraggableLens {
  */
 export function makeLensDraggable(
   frame: HTMLElement,
-  lens: Pick<LiquidLens, "syncTo" | "setIntensity">,
+  lens: Pick<LiquidLens, "syncTo" | "setIntensity" | "freeze" | "unfreeze">,
   options: DraggableLensOptions = {},
 ): DraggableLens {
   const follower = createLensFollower(frame, lens, options);
   const grabIntensity = options.grabIntensity ?? 1.4;
   const clamp = options.clamp;
+  const freezeContent = options.freezeContent ?? true;
 
   let active = false;
   let grabX = 0;
@@ -201,6 +210,11 @@ export function makeLensDraggable(
     if (grabIntensity !== 1) {
       lens.setIntensity(grabIntensity);
     }
+    // Hold the backdrop content still for the drag so a mutating backdrop
+    // cannot trigger a full clone rebuild on each frame.
+    if (freezeContent) {
+      lens.freeze();
+    }
   };
 
   const onPointerMove = (event: PointerEvent): void => {
@@ -215,6 +229,9 @@ export function makeLensDraggable(
     active = false;
     frame.releasePointerCapture?.(event.pointerId);
     lens.setIntensity(1);
+    if (freezeContent) {
+      lens.unfreeze();
+    }
   };
 
   frame.addEventListener("pointerdown", onPointerDown);

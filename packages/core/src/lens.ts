@@ -121,6 +121,17 @@ export interface LiquidLens {
   pause(): void;
   /** Reverses `pause()` and re-syncs position, scroll, and content. */
   resume(): void;
+  /**
+   * Suspends only the backdrop-content rebuild (the expensive `cloneNode`),
+   * while the lens keeps rendering and stays scroll-aligned. Intended to wrap
+   * a heavy interaction such as a drag: with a backdrop that mutates every
+   * frame, `trackContent` would otherwise rebuild the whole clone each frame.
+   * The refraction shows the backdrop as of the freeze until `unfreeze`.
+   * Cheap and idempotent; unrelated to `pause`.
+   */
+  freeze(): void;
+  /** Reverses `freeze()`, rebuilding the clone once if the backdrop changed meanwhile. */
+  unfreeze(): void;
   /** The lens's current options, including defaults, as a read-only snapshot. */
   readonly options: Readonly<LiquidLensOptions>;
   /**
@@ -474,15 +485,20 @@ export function createLiquidLens(
   let destroyed = false;
   let refreshQueued = false;
   let paused = false;
-  // Set when content changed while paused, so resume() knows the clone
-  // cannot be trusted and must be rebuilt rather than just re-synced.
+  // Suspends only the (expensive) clone rebuild, while the lens stays visible
+  // and scroll-aligned — for the duration of a heavy interaction such as a
+  // drag, where a backdrop that mutates each frame would otherwise force a
+  // full cloneNode rebuild every frame.
+  let contentFrozen = false;
+  // Set when content changed while paused or frozen, so resume()/unfreeze()
+  // know the clone cannot be trusted and must be rebuilt rather than re-synced.
   let cloneStale = false;
 
   function refreshClone(): void {
     if (destroyed) {
       return;
     }
-    if (paused) {
+    if (paused || contentFrozen) {
       cloneStale = true;
       return;
     }
@@ -649,11 +665,26 @@ export function createLiquidLens(
     }
     paused = false;
     refraction.style.display = "";
-    if (cloneStale) {
+    if (cloneStale && !contentFrozen) {
       refreshClone();
     } else {
       sync();
       mirrorAllScrolls();
+    }
+  }
+
+  function freeze(): void {
+    contentFrozen = true;
+  }
+
+  function unfreeze(): void {
+    if (!contentFrozen || destroyed) {
+      return;
+    }
+    contentFrozen = false;
+    // Catch up on any backdrop change that happened while frozen.
+    if (cloneStale && !paused) {
+      refreshClone();
     }
   }
 
@@ -664,6 +695,8 @@ export function createLiquidLens(
     setIntensity,
     pause,
     resume,
+    freeze,
+    unfreeze,
     get options(): Readonly<LiquidLensOptions> {
       return { ...settings };
     },

@@ -527,8 +527,6 @@ function refreshPreviews(resolution = 1): void {
   }, resolution);
   specularCanvas.style.width = `${params.width}px`;
   specularCanvas.style.height = `${params.height}px`;
-
-  refreshExport();
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +666,8 @@ backdropTextInput.addEventListener("input", () => {
 for (const id of ids) {
   inputs[id].addEventListener("input", () => {
     refreshLabels();
+    // Snippet updates per value change (input events), not per morph frame.
+    refreshExport();
     if (GEOMETRY_IDS.includes(id)) {
       wake();
     } else if (id === "stiffness" || id === "damping") {
@@ -696,6 +696,7 @@ for (const button of shapeButtons) {
     lensEl.style.borderRadius = frameRadiusCss();
     lens?.update(currentOptions());
     refreshPreviews();
+    refreshExport();
   });
 }
 
@@ -704,6 +705,7 @@ for (const input of [tintColorInput, specularColorInput]) {
   input.addEventListener("input", () => {
     lens?.update(currentOptions());
     refreshPreviews();
+    refreshExport();
   });
 }
 
@@ -761,6 +763,7 @@ lensEl.style.borderRadius = frameRadiusCss();
 applyTransform();
 lens = createLiquidLens(lensEl, background, currentOptions());
 refreshPreviews();
+refreshExport();
 
 // ---------------------------------------------------------------------------
 // Menu Init & Interaction

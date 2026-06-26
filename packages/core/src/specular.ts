@@ -4,6 +4,31 @@ import type { LensParams } from "./types";
 
 /** Default tightness of the directional highlight; higher is a narrower hot spot. */
 const SPECULAR_EXPONENT = 10;
+
+/**
+ * Parses `#rgb`/`#rrggbb` to an [r, g, b] triple, or returns null for any
+ * other CSS color form. The fast path: a hex color (what a color input emits)
+ * is resolved with no canvas read-back, which would otherwise stall the
+ * pipeline on every regenerated specular map during a size morph.
+ */
+function parseHexColor(color: string): [number, number, number] | null {
+  const hex = color.trim();
+  if (hex[0] !== "#") return null;
+  const body = hex.slice(1);
+  if (body.length === 3) {
+    const r = Number.parseInt(body[0] + body[0], 16);
+    const g = Number.parseInt(body[1] + body[1], 16);
+    const b = Number.parseInt(body[2] + body[2], 16);
+    return Number.isNaN(r + g + b) ? null : [r, g, b];
+  }
+  if (body.length === 6) {
+    const r = Number.parseInt(body.slice(0, 2), 16);
+    const g = Number.parseInt(body.slice(2, 4), 16);
+    const b = Number.parseInt(body.slice(4, 6), 16);
+    return Number.isNaN(r + g + b) ? null : [r, g, b];
+  }
+  return null;
+}
 /** Relative strength of the counter-highlight on the edge facing away */
 const COUNTER_LIGHT = 0.5;
 /** Relative strength of the faint all-around fresnel ring */
@@ -98,19 +123,25 @@ export function renderSpecularToCanvas(
     throw new Error("2D canvas context is not available");
   }
 
-  // Resolve the highlight color to RGB by letting the canvas parse any CSS
-  // color form (named, hex, rgb(), hsl()). The probe pixel is overwritten by
-  // putImageData below, so it leaves no trace.
+  // Resolve the highlight color to RGB. Hex (the common case) is parsed
+  // directly; any other CSS form is resolved by letting the canvas parse it,
+  // reading back one pixel. The read-back is avoided on the hot path because
+  // it forces a GPU→CPU sync that would stall every regen during a morph.
   let cr = 255;
   let cg = 255;
   let cb = 255;
   if (color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, 1, 1);
-    const probe = ctx.getImageData(0, 0, 1, 1).data;
-    cr = probe[0];
-    cg = probe[1];
-    cb = probe[2];
+    const hex = parseHexColor(color);
+    if (hex) {
+      [cr, cg, cb] = hex;
+    } else {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      const probe = ctx.getImageData(0, 0, 1, 1).data; // overwritten by putImageData below
+      cr = probe[0];
+      cg = probe[1];
+      cb = probe[2];
+    }
   }
 
   const image = ctx.createImageData(outWidth, outHeight);
