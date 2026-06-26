@@ -1,286 +1,147 @@
+import { useEffect, useRef, type RefObject } from "react";
 import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-} from "react";
-import { Spring, type LiquidLens as LiquidLensHandle } from "@liquidlens/core";
+  createLensFollower,
+  makeLensDraggable,
+  type DraggableLens,
+  type DraggableLensOptions,
+  type LensFollower,
+  type LensFollowOptions,
+  type LiquidLens as LiquidLensHandle,
+} from "@liquidlens/core";
 
-// Underdamped by default (damping < 2*sqrt(stiffness) ≈ 23.7), so the lens
-// trails the cursor and wobbles to a stop instead of snapping.
-const DEFAULT_STIFFNESS = 140;
-const DEFAULT_DAMPING = 14;
+export type {
+  SpringConfig,
+  LensFollowOptions,
+  DraggableLensOptions,
+} from "@liquidlens/core";
 
-// useLayoutEffect warns during SSR; fall back to useEffect on the server.
-const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
-
-export interface SpringConfig {
-  /** Spring constant; higher snaps to the target faster (default 140). */
-  stiffness?: number;
-  /**
-   * Damping. Below `2 * sqrt(stiffness)` the motion overshoots and wobbles;
-   * above it, it settles without bounce (default 14, i.e. wobbly).
-   */
-  damping?: number;
-}
-
-export interface LensFollowConfig extends SpringConfig {
-  /** Where the frame starts, applied before first paint (default 0, 0). */
-  initial?: { x: number; y: number };
-}
-
-/**
- * Imperative handle returned by {@link useLensFollow}: retarget with `to`,
- * jump with `set`, read the live animated position from `x`/`y`. The
- * functions are stable across renders, so they are safe in effect deps.
- */
-export interface LensFollowController {
-  /** Spring the frame toward (x, y) over the coming frames. */
+/** Stable handle returned by {@link useLensFollow}; proxies to the live follower. */
+export interface ReactLensFollower {
   to(x: number, y: number): void;
-  /** Jump to (x, y) immediately, with no animation. */
   set(x: number, y: number): void;
   readonly x: number;
   readonly y: number;
 }
 
 /**
- * Springs a lens frame toward a moving target. The lens does not own its own
- * position. The element is positioned by a CSS transform, and `syncTo`
- * realigns the refraction to wherever it lands, so this hook is what turns
- * that instant alignment into liquid lag-and-wobble: it drives two springs in
- * a `requestAnimationFrame` loop, writing the frame's `transform` and calling
- * `syncTo` each frame, and stops once both springs settle.
+ * React wrapper around the core {@link createLensFollower}: springs a lens
+ * frame toward a moving target, writing its transform and calling `syncTo`
+ * each frame, with no per-frame React re-render. Pair it with the frame ref
+ * you gave `useLiquidLens` and the lens handle it returns.
  *
- * Position is applied imperatively (no per-frame React re-render). The hook
- * owns the frame's `transform`, so set size/shape via other CSS, not a
- * transform of your own. Honors `prefers-reduced-motion` by jumping straight
- * to the target.
+ * `stiffness`/`damping` update the live spring; `initial` is applied once.
  *
  * @example
  * const frameRef = useRef<HTMLDivElement>(null);
  * const lens = useLiquidLens(frameRef, backdropRef, { preset: "lean" });
  * const follow = useLensFollow(frameRef, lens, { stiffness: 180, damping: 18 });
- * // follow.to(x, y) from anywhere: a click, a layout change, a snap point
+ * // follow.to(x, y) from a click, a layout change, a snap point…
  */
 export function useLensFollow(
   frameRef: RefObject<HTMLElement | null>,
   lensRef: RefObject<LiquidLensHandle | null>,
-  config: LensFollowConfig = {},
-): LensFollowController {
-  const stiffness = config.stiffness ?? DEFAULT_STIFFNESS;
-  const damping = config.damping ?? DEFAULT_DAMPING;
+  config: LensFollowOptions = {},
+): ReactLensFollower {
+  const followerRef = useRef<LensFollower | null>(null);
 
-  const springX = useRef<Spring | null>(null);
-  const springY = useRef<Spring | null>(null);
-  if (!springX.current) springX.current = new Spring(0, stiffness, damping);
-  if (!springY.current) springY.current = new Spring(0, stiffness, damping);
-
-  // Update the live springs in place when the config changes; recreating them
-  // would drop their in-flight velocity mid-motion.
-  useEffect(() => {
-    const sx = springX.current!;
-    const sy = springY.current!;
-    sx.stiffness = stiffness;
-    sx.damping = damping;
-    sy.stiffness = stiffness;
-    sy.damping = damping;
-  }, [stiffness, damping]);
-
-  const rafId = useRef<number | undefined>(undefined);
-  const lastTime = useRef(0);
-  const reduced = useRef(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reduced.current = query.matches;
-    const onChange = (): void => {
-      reduced.current = query.matches;
-    };
-    query.addEventListener?.("change", onChange);
-    return () => query.removeEventListener?.("change", onChange);
-  }, []);
-
-  // Build the controller once; everything it touches is a ref or a global, so
-  // the first render's closures stay correct for the component's whole life.
-  const controller = useRef<LensFollowController | null>(null);
-  if (!controller.current) {
-    const write = (x: number, y: number): void => {
-      const frame = frameRef.current;
-      if (frame) {
-        frame.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-      }
-      lensRef.current?.syncTo(x, y);
-    };
-
-    function tick(now: number): void {
-      const sx = springX.current!;
-      const sy = springY.current!;
-      const dt = Math.min((now - lastTime.current) / 1000, 1 / 30);
-      lastTime.current = now;
-      if (reduced.current) {
-        sx.snap();
-        sy.snap();
-      } else {
-        sx.step(dt);
-        sy.step(dt);
-      }
-      write(sx.value, sy.value);
-      if (!sx.settled || !sy.settled) {
-        rafId.current = requestAnimationFrame(tick);
-      } else {
-        rafId.current = undefined;
-      }
-    }
-
-    const wake = (): void => {
-      if (rafId.current === undefined && typeof requestAnimationFrame !== "undefined") {
-        lastTime.current = performance.now();
-        rafId.current = requestAnimationFrame(tick);
-      }
-    };
-
-    controller.current = {
-      to(x, y) {
-        springX.current!.target = x;
-        springY.current!.target = y;
-        wake();
-      },
-      set(x, y) {
-        const sx = springX.current!;
-        const sy = springY.current!;
-        sx.value = x;
-        sx.target = x;
-        sx.velocity = 0;
-        sy.value = y;
-        sy.target = y;
-        sy.velocity = 0;
-        write(x, y);
-      },
+  const facadeRef = useRef<ReactLensFollower | null>(null);
+  if (!facadeRef.current) {
+    facadeRef.current = {
+      to: (x, y) => followerRef.current?.to(x, y),
+      set: (x, y) => followerRef.current?.set(x, y),
       get x() {
-        return springX.current!.value;
+        return followerRef.current?.x ?? 0;
       },
       get y() {
-        return springY.current!.value;
+        return followerRef.current?.y ?? 0;
       },
     };
   }
 
-  // Place the frame at its initial position before the first paint.
-  const initialX = config.initial?.x ?? 0;
-  const initialY = config.initial?.y ?? 0;
-  useIsoLayoutEffect(() => {
-    controller.current!.set(initialX, initialY);
-    // Run once: subsequent positions arrive through `to`/`set`.
+  // Keep `initial`/etc. available to the mount effect without recreating the
+  // follower when an inline config object changes identity each render.
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  // The lens handle exists by the time this effect runs (useLiquidLens is
+  // called first, so its mount effect created the lens). Recreate only if the
+  // ref objects themselves change.
+  useEffect(() => {
+    const frame = frameRef.current;
+    const lens = lensRef.current;
+    if (!frame || !lens) return;
+    const follower = createLensFollower(frame, lens, configRef.current);
+    followerRef.current = follower;
+    return () => {
+      follower.destroy();
+      followerRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [frameRef, lensRef]);
 
-  // Stop the loop when the component unmounts.
-  useEffect(
-    () => () => {
-      if (rafId.current !== undefined && typeof cancelAnimationFrame !== "undefined") {
-        cancelAnimationFrame(rafId.current);
-      }
-    },
-    [],
-  );
+  // Live-update the spring constants in place.
+  useEffect(() => {
+    followerRef.current?.configure({
+      stiffness: config.stiffness,
+      damping: config.damping,
+    });
+  }, [config.stiffness, config.damping]);
 
-  return controller.current;
+  return facadeRef.current;
 }
 
-export interface DraggableLensConfig extends LensFollowConfig {
-  /**
-   * Refraction multiplier applied on grab and released on drop (default 1.4),
-   * so the glass swells while held. Set 1 to disable the press feedback.
-   */
-  grabIntensity?: number;
-  /**
-   * Clamp the target on each move, e.g. to keep the lens inside a container.
-   * Receives and returns a position in the same coordinate space as the
-   * frame's transform.
-   */
-  clamp?: (position: { x: number; y: number }) => { x: number; y: number };
-}
-
-export interface DraggableLensHandlers {
-  onPointerDown(event: ReactPointerEvent): void;
-  onPointerMove(event: ReactPointerEvent): void;
-  onPointerUp(event: ReactPointerEvent): void;
-  onPointerCancel(event: ReactPointerEvent): void;
-}
-
-export interface DraggableLens {
-  /** Spread onto the frame element to make it drag with a spring follow. */
-  handlers: DraggableLensHandlers;
+/** Stable handle returned by {@link useDraggableLens}. */
+export interface ReactDraggableLens {
   /** Imperatively spring the lens to a position (e.g. reset to center). */
   to(x: number, y: number): void;
 }
 
 /**
- * Makes a lens frame draggable with a spring follow: the pointer sets the
- * spring target and the frame trails and wobbles to it (see
- * {@link useLensFollow}), swelling its refraction while held. This is the
- * "interactive liquid glass" hero case as a one-liner; `stiffness`/`damping`
- * are the feel knobs.
- *
- * Give the frame `touch-action: none` so touch drags don't scroll the page.
+ * React wrapper around the core {@link makeLensDraggable}: makes the lens
+ * frame drag with a spring follow and a press swell, attaching its pointer
+ * listeners to the frame (including `touch-action: none`) for you. The
+ * "interactive liquid glass" hero case as a one-liner.
  *
  * @example
  * const frameRef = useRef<HTMLDivElement>(null);
  * const lens = useLiquidLens(frameRef, backdropRef, { depth: 60 });
- * const { handlers } = useDraggableLens(frameRef, lens, {
- *   stiffness: 140,
- *   damping: 14,
- *   initial: { x: 120, y: 80 },
- * });
- * return <div ref={frameRef} className="drop" style={{ touchAction: "none" }} {...handlers} />;
+ * useDraggableLens(frameRef, lens, { stiffness: 140, damping: 14, initial: { x: 120, y: 80 } });
+ * return <div ref={frameRef} className="drop" />;
  */
 export function useDraggableLens(
   frameRef: RefObject<HTMLElement | null>,
   lensRef: RefObject<LiquidLensHandle | null>,
-  config: DraggableLensConfig = {},
-): DraggableLens {
-  const follow = useLensFollow(frameRef, lensRef, config);
-  const grabIntensity = config.grabIntensity ?? 1.4;
-  const clamp = config.clamp;
+  config: DraggableLensOptions = {},
+): ReactDraggableLens {
+  const dragRef = useRef<DraggableLens | null>(null);
 
-  // Drag bookkeeping in a ref so moves never trigger a React re-render.
-  const drag = useRef({ active: false, dx: 0, dy: 0 });
+  const facadeRef = useRef<ReactDraggableLens | null>(null);
+  if (!facadeRef.current) {
+    facadeRef.current = { to: (x, y) => dragRef.current?.to(x, y) };
+  }
 
-  const endDrag = (event: ReactPointerEvent): void => {
-    if (!drag.current.active) return;
-    drag.current.active = false;
-    (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
-    lensRef.current?.setIntensity(1);
-  };
+  const configRef = useRef(config);
+  configRef.current = config;
 
-  const handlers: DraggableLensHandlers = {
-    onPointerDown(event) {
-      // Grab offset against the live animated position, so picking the lens
-      // up mid-wobble doesn't make it jump.
-      drag.current = {
-        active: true,
-        dx: event.clientX - follow.x,
-        dy: event.clientY - follow.y,
-      };
-      (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-      if (grabIntensity !== 1) {
-        lensRef.current?.setIntensity(grabIntensity);
-      }
-    },
-    onPointerMove(event) {
-      if (!drag.current.active) return;
-      let next = {
-        x: event.clientX - drag.current.dx,
-        y: event.clientY - drag.current.dy,
-      };
-      if (clamp) next = clamp(next);
-      follow.to(next.x, next.y);
-    },
-    onPointerUp: endDrag,
-    onPointerCancel: endDrag,
-  };
+  useEffect(() => {
+    const frame = frameRef.current;
+    const lens = lensRef.current;
+    if (!frame || !lens) return;
+    const draggable = makeLensDraggable(frame, lens, configRef.current);
+    dragRef.current = draggable;
+    return () => {
+      draggable.destroy();
+      dragRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameRef, lensRef]);
 
-  return { handlers, to: follow.to };
+  useEffect(() => {
+    dragRef.current?.configure({
+      stiffness: config.stiffness,
+      damping: config.damping,
+    });
+  }, [config.stiffness, config.damping]);
+
+  return facadeRef.current;
 }

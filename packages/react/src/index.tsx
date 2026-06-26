@@ -38,11 +38,10 @@ export {
   useLensFollow,
   useDraggableLens,
   type SpringConfig,
-  type LensFollowConfig,
-  type LensFollowController,
-  type DraggableLensConfig,
-  type DraggableLens,
-  type DraggableLensHandlers,
+  type LensFollowOptions,
+  type DraggableLensOptions,
+  type ReactLensFollower,
+  type ReactDraggableLens,
 } from "./follow";
 
 /**

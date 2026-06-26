@@ -16,3 +16,11 @@ export { presets } from "./presets";
 export type { PerformanceTier } from "./tier";
 export { performanceTier } from "./tier";
 export { Spring } from "./spring";
+export type {
+  SpringConfig,
+  LensFollowOptions,
+  LensFollower,
+  DraggableLensOptions,
+  DraggableLens,
+} from "./follow";
+export { createLensFollower, makeLensDraggable } from "./follow";
