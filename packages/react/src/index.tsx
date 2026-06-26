@@ -2,6 +2,8 @@ import {
   createLiquidLens,
   presets,
   type LensPresetName,
+  type LensShape,
+  type LensShapeName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
 } from "@liquidlens/core";
@@ -16,7 +18,7 @@ import {
   type RefObject,
 } from "react";
 
-export type { LiquidLensHandle, LiquidLensOptions, LensPresetName };
+export type { LiquidLensHandle, LiquidLensOptions, LensPresetName, LensShape, LensShapeName };
 export { presets };
 
 /**
@@ -35,7 +37,12 @@ const LENS_OPTION_KEYS = new Set<string>([
   "saturation",
   "lightAngle",
   "specular",
+  "specularColor",
+  "specularSharpness",
+  "tint",
+  "tintOpacity",
   "borderRadius",
+  "shape",
   "respectReducedMotion",
   "trackScroll",
   "trackContent",
@@ -128,6 +135,7 @@ export function useLiquidLens(
     options.lightAngle,
     options.specular,
     options.borderRadius,
+    options.shape,
     options.respectReducedMotion,
     options.trackScroll,
     options.trackContent,

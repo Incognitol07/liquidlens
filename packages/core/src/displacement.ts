@@ -1,4 +1,4 @@
-import { sampleRoundedRect, type RoundedRectSample } from "./sdf";
+import { roundedRectShape, type ShapeSample } from "./shape";
 import { clamp, smoothstep } from "./math";
 import type { LensParams, DisplacementField } from "./types";
 
@@ -14,15 +14,16 @@ import type { LensParams, DisplacementField } from "./types";
  * devicePixelRatio to generate a map that stays sharp on high-DPI displays.
  * Lens geometry and displacement values are in CSS pixels regardless.
  *
- * The lens shape is symmetric across both axes, so only the top-left
- * quadrant is computed; the rest is mirrored with the appropriate sign
- * flips.
+ * A doubly-symmetric shape (every built-in) is computed for the top-left
+ * quadrant only and mirrored with the appropriate sign flips; a shape that
+ * sets `symmetric: false` is sampled in full.
  */
 export function computeDisplacementField(
   params: LensParams,
   resolution = 1,
 ): DisplacementField {
   const { width, height, borderRadius, depth, curvature, splay } = params;
+  const shape = params.shape ?? roundedRectShape(borderRadius);
   const halfW = width / 2;
   const halfH = height / 2;
   const rimWidth = Math.max(1, curvature * Math.min(halfW, halfH));
@@ -38,47 +39,75 @@ export function computeDisplacementField(
   // differ slightly from the CSS width.
   const centerX = fieldWidth / 2;
   const centerY = fieldHeight / 2;
+
+  const sample: ShapeSample = { distance: 0, normalX: 0, normalY: 0 };
+  // Displacement vector at the last sampled point, written by computeVec.
+  let vx = 0;
+  let vy = 0;
+
+  /** Fills vx/vy with the displacement at (x, y); returns false where it is zero. */
+  const computeVec = (x: number, y: number): boolean => {
+    shape.sample(x, y, halfW, halfH, sample);
+    const d = sample.distance;
+
+    let weight: number;
+    if (d <= 0) {
+      const t = clamp(-d / rimWidth, 0, 1);
+      weight = 1 - smoothstep(0, 1, t);
+    } else {
+      weight = clamp(1 - d / outerFalloff, 0, 1);
+    }
+
+    if (weight <= 0) {
+      return false;
+    }
+
+    // Edge-normal direction, pointing inward toward the lens center.
+    const normalX = -sample.normalX;
+    const normalY = -sample.normalY;
+
+    // Radial direction, pointing away from the lens center.
+    const rLen = Math.sqrt(x * x + y * y) || 1;
+    const radialX = x / rLen;
+    const radialY = y / rLen;
+
+    const dirX = normalX * (1 - splay) + radialX * splay;
+    const dirY = normalY * (1 - splay) + radialY * splay;
+    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+
+    vx = (dirX / dirLen) * depth * weight;
+    vy = (dirY / dirLen) * depth * weight;
+    return true;
+  };
+
+  if (shape.symmetric === false) {
+    // Asymmetric shape: sample every pixel; no mirroring is valid.
+    for (let py = 0; py < fieldHeight; py++) {
+      const y = (py + 0.5 - centerY) / resolution;
+      for (let px = 0; px < fieldWidth; px++) {
+        const x = (px + 0.5 - centerX) / resolution;
+        if (!computeVec(x, y)) {
+          continue;
+        }
+        const i = py * fieldWidth + px;
+        dx[i] = vx;
+        dy[i] = vy;
+      }
+    }
+    return { width: fieldWidth, height: fieldHeight, dx, dy };
+  }
+
   const quadrantW = (fieldWidth + 1) >> 1;
   const quadrantH = (fieldHeight + 1) >> 1;
-
-  const sample: RoundedRectSample = { distance: 0, normalX: 0, normalY: 0 };
 
   for (let py = 0; py < quadrantH; py++) {
     const y = (py + 0.5 - centerY) / resolution;
     const my = fieldHeight - 1 - py;
     for (let px = 0; px < quadrantW; px++) {
       const x = (px + 0.5 - centerX) / resolution;
-
-      sampleRoundedRect(x, y, halfW, halfH, borderRadius, sample);
-      const d = sample.distance;
-
-      let weight: number;
-      if (d <= 0) {
-        const t = clamp(-d / rimWidth, 0, 1);
-        weight = 1 - smoothstep(0, 1, t);
-      } else {
-        weight = clamp(1 - d / outerFalloff, 0, 1);
-      }
-
-      if (weight <= 0) {
+      if (!computeVec(x, y)) {
         continue;
       }
-
-      // Edge-normal direction, pointing inward toward the lens center.
-      const normalX = -sample.normalX;
-      const normalY = -sample.normalY;
-
-      // Radial direction, pointing away from the lens center.
-      const rLen = Math.sqrt(x * x + y * y) || 1;
-      const radialX = x / rLen;
-      const radialY = y / rLen;
-
-      let dirX = normalX * (1 - splay) + radialX * splay;
-      let dirY = normalY * (1 - splay) + radialY * splay;
-      const dirLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-
-      const vx = (dirX / dirLen) * depth * weight;
-      const vy = (dirY / dirLen) * depth * weight;
 
       // Mirror into the other three quadrants: x-reflection negates the
       // horizontal component, y-reflection the vertical one.

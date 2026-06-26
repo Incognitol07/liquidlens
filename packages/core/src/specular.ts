@@ -1,8 +1,8 @@
-import { sampleRoundedRect, type RoundedRectSample } from "./sdf";
+import { roundedRectShape, type ShapeSample } from "./shape";
 import { clamp, smoothstep } from "./math";
 import type { LensParams } from "./types";
 
-/** Tightness of the directional highlight; higher means a narrower hot spot */
+/** Default tightness of the directional highlight; higher is a narrower hot spot. */
 const SPECULAR_EXPONENT = 10;
 /** Relative strength of the counter-highlight on the edge facing away */
 const COUNTER_LIGHT = 0.5;
@@ -14,40 +14,58 @@ export interface SpecularOptions {
   lightAngle: number;
   /** 0..1 overall highlight strength */
   strength: number;
+  /**
+   * CSS color of the highlight (default white). Screen-blended over the
+   * refracted content, so it brightens toward this color — a warm white
+   * reads as sunlight, a cool tint as a cold rim light.
+   */
+  color?: string;
+  /**
+   * Tightness of the directional hot spot (default 10). Higher concentrates
+   * the highlight into a smaller, glossier spot; lower spreads it into a
+   * softer sheen.
+   */
+  sharpness?: number;
 }
 
 /**
  * Highlight alpha for one rim sample: `facing` is the dot product of the
  * outward surface normal with the light direction, `mask` the rim band
- * weight. Shared by the single-lens and scene renderers so the two looks
- * never drift apart.
+ * weight, `sharpness` the directional exponent. Shared by every code path so
+ * the look never drifts.
  */
-export function specularIntensity(facing: number, mask: number, strength: number): number {
+export function specularIntensity(
+  facing: number,
+  mask: number,
+  strength: number,
+  sharpness: number = SPECULAR_EXPONENT,
+): number {
   // facing > 0 and facing < 0 are mutually exclusive, so only one of the
   // main and counter highlights is ever nonzero; compute just that one.
   const lit =
     facing >= 0
-      ? facing ** SPECULAR_EXPONENT
-      : (-facing) ** SPECULAR_EXPONENT * COUNTER_LIGHT;
+      ? facing ** sharpness
+      : (-facing) ** sharpness * COUNTER_LIGHT;
   return clamp(mask * strength * (AMBIENT_RING + lit), 0, 1);
 }
 
 /**
- * Renders the specular rim light for a lens onto a canvas: white pixels
- * whose alpha encodes highlight intensity, meant to be screen-blended over
- * the refracted output.
+ * Renders the specular rim light for a lens onto a canvas: colored pixels
+ * (white by default) whose alpha encodes highlight intensity, meant to be
+ * screen-blended over the refracted output.
  *
- * The highlight hugs the inside of the lens edge, derived from the same SDF
+ * The highlight hugs the inside of the lens edge, derived from the same shape
  * as the refraction: brightest where the outward surface normal faces the
  * light, with a weaker counter-highlight on the opposite edge and a faint
- * ring everywhere. Because it is computed rather than CSS box-shadow, it
+ * ring everywhere. Because it is computed rather than a CSS box-shadow, it
  * follows any shape the SDF describes.
  *
  * `resolution` is samples per CSS pixel, as in `computeDisplacementField`.
  *
- * The mask and normal are symmetric across both axes, so they are computed
- * for the top-left quadrant only; the light-dependent part is re-evaluated
- * per mirrored pixel with the normal's components sign-flipped.
+ * For a doubly-symmetric shape (every built-in) the mask and normal are
+ * computed for the top-left quadrant and reused across the mirrored pixels
+ * with the normal's components sign-flipped; a shape that sets
+ * `symmetric: false` is sampled in full.
  */
 export function renderSpecularToCanvas(
   canvas: HTMLCanvasElement,
@@ -56,7 +74,8 @@ export function renderSpecularToCanvas(
   resolution = 1,
 ): void {
   const { width, height, borderRadius, curvature } = params;
-  const { lightAngle, strength } = options;
+  const { lightAngle, strength, color, sharpness } = options;
+  const shape = params.shape ?? roundedRectShape(borderRadius);
   const halfW = width / 2;
   const halfH = height / 2;
 
@@ -79,6 +98,21 @@ export function renderSpecularToCanvas(
     throw new Error("2D canvas context is not available");
   }
 
+  // Resolve the highlight color to RGB by letting the canvas parse any CSS
+  // color form (named, hex, rgb(), hsl()). The probe pixel is overwritten by
+  // putImageData below, so it leaves no trace.
+  let cr = 255;
+  let cg = 255;
+  let cb = 255;
+  if (color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    const probe = ctx.getImageData(0, 0, 1, 1).data;
+    cr = probe[0];
+    cg = probe[1];
+    cb = probe[2];
+  }
+
   const image = ctx.createImageData(outWidth, outHeight);
   const data = image.data;
 
@@ -86,18 +120,42 @@ export function renderSpecularToCanvas(
   // negated coordinates (see computeDisplacementField).
   const centerX = outWidth / 2;
   const centerY = outHeight / 2;
-  const quadrantW = (outWidth + 1) >> 1;
-  const quadrantH = (outHeight + 1) >> 1;
 
-  const sample: RoundedRectSample = { distance: 0, normalX: 0, normalY: 0 };
+  const sample: ShapeSample = { distance: 0, normalX: 0, normalY: 0 };
 
   const write = (i: number, alpha: number): void => {
     const o = i * 4;
-    data[o] = 255;
-    data[o + 1] = 255;
-    data[o + 2] = 255;
+    data[o] = cr;
+    data[o + 1] = cg;
+    data[o + 2] = cb;
     data[o + 3] = Math.round(alpha * 255);
   };
+
+  if (shape.symmetric === false) {
+    // Asymmetric shape: sample every pixel directly.
+    for (let py = 0; py < outHeight; py++) {
+      const y = (py + 0.5 - centerY) / resolution;
+      for (let px = 0; px < outWidth; px++) {
+        const x = (px + 0.5 - centerX) / resolution;
+        shape.sample(x, y, halfW, halfH, sample);
+        if (sample.distance > 0) {
+          continue;
+        }
+        const t = clamp(-sample.distance / band, 0, 1);
+        const mask = 1 - smoothstep(0, 1, t);
+        if (mask <= 0) {
+          continue;
+        }
+        const facing = sample.normalX * lightX + sample.normalY * lightY;
+        write(py * outWidth + px, specularIntensity(facing, mask, strength, sharpness));
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+    return;
+  }
+
+  const quadrantW = (outWidth + 1) >> 1;
+  const quadrantH = (outHeight + 1) >> 1;
 
   for (let py = 0; py < quadrantH; py++) {
     const y = (py + 0.5 - centerY) / resolution;
@@ -105,7 +163,7 @@ export function renderSpecularToCanvas(
     for (let px = 0; px < quadrantW; px++) {
       const x = (px + 0.5 - centerX) / resolution;
 
-      sampleRoundedRect(x, y, halfW, halfH, borderRadius, sample);
+      shape.sample(x, y, halfW, halfH, sample);
       const d = sample.distance;
       if (d > 0) {
         continue; // outside the lens; the frame clips this away regardless
@@ -121,10 +179,10 @@ export function renderSpecularToCanvas(
       const fy = sample.normalY * lightY;
       const mx = outWidth - 1 - px;
 
-      write(py * outWidth + px, specularIntensity(fx + fy, mask, strength));
-      write(py * outWidth + mx, specularIntensity(-fx + fy, mask, strength));
-      write(my * outWidth + px, specularIntensity(fx - fy, mask, strength));
-      write(my * outWidth + mx, specularIntensity(-fx - fy, mask, strength));
+      write(py * outWidth + px, specularIntensity(fx + fy, mask, strength, sharpness));
+      write(py * outWidth + mx, specularIntensity(-fx + fy, mask, strength, sharpness));
+      write(my * outWidth + px, specularIntensity(fx - fy, mask, strength, sharpness));
+      write(my * outWidth + mx, specularIntensity(-fx - fy, mask, strength, sharpness));
     }
   }
 

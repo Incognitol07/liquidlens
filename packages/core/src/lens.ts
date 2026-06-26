@@ -1,5 +1,6 @@
 import { createGlassFilter } from "./filter";
 import { presets } from "./presets";
+import { resolveShape, type LensShape, type LensShapeName } from "./shape";
 import { performanceTier } from "./tier";
 
 const LENS_MARKER = "data-liquidlens";
@@ -23,6 +24,15 @@ export interface LiquidLensOptions {
   specular?: number;
   /** Corner radius in px; defaults to the frame's computed border-radius */
   borderRadius?: number;
+  /**
+   * The lens silhouette, followed by both the refraction and the specular
+   * rim. A built-in name — `"rect"` (rounded rectangle, the default, using
+   * `borderRadius`), `"pill"` (fully rounded ends), `"ellipse"`, or
+   * `"squircle"` — or a custom {@link LensShape} signed-distance sampler for
+   * any silhouette you can describe. `borderRadius` is ignored unless the
+   * shape is a rounded rectangle.
+   */
+  shape?: LensShapeName | LensShape;
   /**
    * When true (the default), honors the OS "prefers reduced motion"
    * setting by pinning `setIntensity` at 1, so press-swell and similar
@@ -106,7 +116,7 @@ export interface LiquidLens {
   destroy(): void;
 }
 
-type ResolvedOptions = Required<Omit<LiquidLensOptions, "borderRadius" | "onReady">>;
+type ResolvedOptions = Required<Omit<LiquidLensOptions, "borderRadius" | "onReady" | "shape">>;
 
 /**
  * Defaults adapt to the device: the full preset where there is CPU headroom
@@ -542,6 +552,7 @@ export function createLiquidLens(
         width: lastWidth,
         height: lastHeight,
         borderRadius,
+        shape: resolveShape(settings.shape, borderRadius),
         depth: settings.depth,
         curvature: settings.curvature,
         splay: settings.splay,

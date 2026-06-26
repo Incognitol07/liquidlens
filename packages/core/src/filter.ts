@@ -394,8 +394,14 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       const resolution =
         resolutionOverride ?? Math.min(doc.defaultView?.devicePixelRatio ?? 1, 2);
 
+      // The shape's key stands in for borderRadius: it already encodes the
+      // radius for a rounded rect (`rrect:<r>`) and uniquely identifies any
+      // other silhouette, so a shape change invalidates the cached maps.
+      const shapeKey = options.shape
+        ? options.shape.key
+        : `rrect:${options.borderRadius}`;
       const geometry =
-        `${options.width}|${options.height}|${options.borderRadius}|` +
+        `${options.width}|${options.height}|${shapeKey}|` +
         `${options.curvature}|${resolution}`;
 
       // The encoding divides the field by this same depth, so for depth >= 1
