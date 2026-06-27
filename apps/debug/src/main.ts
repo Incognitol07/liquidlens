@@ -1,14 +1,17 @@
 import {
   computeDisplacementField,
+  createBackdropLuminance,
   createLensFollower,
   createLensMorph,
   createLiquidLens,
+  inkColor,
   performanceTier,
   presets,
   renderDisplacementMapToCanvas,
   renderSpecularToCanvas,
   resolveShape,
   Spring,
+  type BackdropLuminance,
   type LensFollower,
   type LensMorph,
   type LensPresetName,
@@ -172,8 +175,11 @@ themeToggle.addEventListener("click", () => {
 // state is derived from the sliders, so it lights up whenever the current
 // values happen to equal a preset and clears as soon as one is hand-tuned.
 
+// Scoped to `[data-preset]` so it excludes other buttons that reuse the
+// `.preset-btn` look (e.g. the Adaptive on/off toggle, which carries
+// `data-adaptive`); without this, matchesPreset would read an undefined preset.
 const presetButtons = Array.from(
-  document.querySelectorAll<HTMLButtonElement>(".preset-btn"),
+  document.querySelectorAll<HTMLButtonElement>(".preset-btn[data-preset]"),
 );
 
 function matchesPreset(name: LensPresetName): boolean {
@@ -323,12 +329,19 @@ const MENU_OPTIONS = {
   specular: 1.00,
 };
 
+/**
+ * Whether the orb's glass reads the backdrop and adapts (shadow, ink, tint).
+ * On by default to showcase it; toggled from the Adaptive control group.
+ */
+let adaptiveEnabled = true;
+
 /** Lens options at this instant; borderRadius follows the animated spring. */
 function currentOptions(): LiquidLensOptions {
   return {
     respectReducedMotion: true,
     trackScroll: true,
     trackContent: true,
+    adaptive: adaptiveEnabled,
     borderRadius: sizeR(),
     shape: shapeName,
     depth: num("depth"),
@@ -727,6 +740,82 @@ orbMorph = createLensMorph(lensEl, lens, {
   },
 });
 refreshExport();
+
+// ---------------------------------------------------------------------------
+// Adaptive: the orb's lens reads the backdrop under it and adapts (grounding
+// shadow, light/dark ink on the label, tone-matched tint). The on/off buttons
+// toggle it at runtime; a sibling probe drives the live luminance/ink readout
+// from the same public API, so the panel mirrors what the lens is seeing.
+
+const adaptiveButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-adaptive]"),
+);
+const adaptiveReadout = document.getElementById("adaptive-readout") as HTMLElement;
+
+// A standalone probe over the orb, purely for the readout (the lens runs its
+// own internally). Sampling tracks the orb's live transform via its rect.
+const readoutProbe: BackdropLuminance = createBackdropLuminance(lensEl, background);
+let readoutInkDark: boolean | undefined;
+let readoutRaf: number | undefined;
+
+function adaptiveReadoutTick(): void {
+  if (!adaptiveEnabled) {
+    readoutRaf = undefined;
+    return;
+  }
+  const luma = readoutProbe.sample();
+  if (luma === null) {
+    adaptiveReadout.textContent = "n/a — backdrop not sampleable";
+  } else {
+    const ink = inkColor(luma, readoutInkDark ?? luma >= 0.5);
+    readoutInkDark = ink.dark;
+    adaptiveReadout.textContent = `luminance ${luma.toFixed(2)} · ink ${ink.dark ? "dark" : "light"}`;
+  }
+  readoutRaf = requestAnimationFrame(adaptiveReadoutTick);
+}
+
+function startReadout(): void {
+  if (readoutRaf === undefined) {
+    readoutRaf = requestAnimationFrame(adaptiveReadoutTick);
+  }
+}
+
+function setAdaptive(enabled: boolean): void {
+  adaptiveEnabled = enabled;
+  for (const button of adaptiveButtons) {
+    button.classList.toggle("is-active", (button.dataset.adaptive === "on") === enabled);
+  }
+  lens?.update({ adaptive: enabled });
+  if (enabled) {
+    adaptiveReadout.textContent = "sampling…";
+    startReadout();
+  } else {
+    adaptiveReadout.textContent = "off";
+  }
+}
+
+for (const button of adaptiveButtons) {
+  button.addEventListener("click", () => setAdaptive(button.dataset.adaptive === "on"));
+}
+
+// Swatches swap the backdrop image through a CSS custom property, not a DOM
+// mutation, so neither probe's content observer sees it. Drop their cached
+// image so the next sample re-resolves the new one, and rebuild the lens's
+// internal adaptive layer by bouncing the option.
+for (const swatch of swatches) {
+  swatch.addEventListener("click", () => {
+    readoutProbe.invalidate();
+    readoutInkDark = undefined;
+    if (adaptiveEnabled) {
+      lens?.update({ adaptive: false });
+      lens?.update({ adaptive: true });
+    }
+  });
+}
+
+if (adaptiveEnabled) {
+  startReadout();
+}
 
 // ---------------------------------------------------------------------------
 // Menu Init & Interaction

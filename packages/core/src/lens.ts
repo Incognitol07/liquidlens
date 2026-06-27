@@ -1,3 +1,4 @@
+import { createAdaptiveLayer, type AdaptiveLayer, type AdaptiveOptions } from "./adaptive";
 import { createGlassFilter } from "./filter";
 import { presets } from "./presets";
 import { resolveShape, type LensShape, type LensShapeName } from "./shape";
@@ -77,6 +78,21 @@ export interface LiquidLensOptions {
    * only when the glass is ready, or for chaining an entrance animation.
    */
   onReady?: () => void;
+  /**
+   * Makes the glass read the backdrop under it and adapt to stay legible, the
+   * way Liquid Glass "continuously adapts based on what's behind it": a
+   * backdrop-aware grounding shadow, light/dark ink flipping for text and
+   * glyphs, and tone-matched tinting. `true` enables all three with defaults;
+   * an {@link AdaptiveOptions} object tunes or disables individual behaviours.
+   * Off by default — it samples backdrop pixels on movement, so it is opt-in.
+   * Runtime-toggleable through {@link LiquidLens.update}.
+   *
+   * Sampling needs readable backdrop pixels (an image/canvas/video element, a
+   * CSS `background-image`, or a `background-color`); over an un-sampleable
+   * backdrop the glass keeps a neutral grounding shadow. Pass
+   * `adaptive: { luminance }` to supply the brightness yourself.
+   */
+  adaptive?: boolean | AdaptiveOptions;
 }
 
 export interface LiquidLens {
@@ -145,6 +161,7 @@ export interface LiquidLens {
 type ResolvedOptions = Required<
   Omit<
     LiquidLensOptions,
+    | "adaptive"
     | "borderRadius"
     | "onReady"
     | "shape"
@@ -366,6 +383,12 @@ export function createLiquidLens(
   let syncedX = Number.NaN;
   let syncedY = Number.NaN;
 
+  // The adaptive layer (created on demand when `adaptive` is on) and the tint
+  // it has derived from the backdrop, which overrides the consumer's base tint
+  // in the filter until they set a new one.
+  let adaptive: AdaptiveLayer | undefined;
+  let adaptedTint: string | undefined;
+
   function syncTo(offsetX: number, offsetY: number): void {
     if (offsetX === syncedX && offsetY === syncedY) {
       return;
@@ -373,6 +396,9 @@ export function createLiquidLens(
     syncedX = offsetX;
     syncedY = offsetY;
     clone.style.transform = `translate(${-offsetX}px, ${-offsetY}px)`;
+    // The frame moved, so the backdrop under it changed: re-read it (cheap
+    // live path; tint catches up on the trailing settle).
+    adaptive?.refresh(false);
   }
 
   function sync(): void {
@@ -380,6 +406,9 @@ export function createLiquidLens(
     const backdropRect = backdrop.getBoundingClientRect();
     syncTo(frameRect.left - backdropRect.left, frameRect.top - backdropRect.top);
     mirrorScroll(backdrop);
+    // Content can scroll under a stationary frame (syncTo above no-ops then),
+    // so re-evaluate here too.
+    adaptive?.refresh(false);
   }
 
   /**
@@ -511,6 +540,9 @@ export function createLiquidLens(
     syncedY = Number.NaN;
     sync();
     mirrorAllScrolls();
+    // The backdrop content changed — and with it possibly the image the probe
+    // samples (e.g. a swapped background) — so drop the cached source.
+    adaptive?.invalidate();
   }
 
   function scheduleCloneRefresh(): void {
@@ -568,6 +600,12 @@ export function createLiquidLens(
     warnOnSuspectOptions(next);
     settings = { ...settings, ...next };
 
+    // A consumer-set tint replaces any tint the adaptive layer had derived, so
+    // the next adaptive sample re-derives from the new base instead of the old.
+    if (next.tint !== undefined) {
+      adaptedTint = undefined;
+    }
+
     // An update may have just turned respectReducedMotion on; re-pin a
     // lens that was left mid-swell (no-op otherwise).
     if (motionSuppressed()) {
@@ -605,7 +643,7 @@ export function createLiquidLens(
         specular: settings.specular,
         specularColor: settings.specularColor,
         specularSharpness: settings.specularSharpness,
-        tint: settings.tint,
+        tint: adaptedTint ?? settings.tint,
         tintOpacity: settings.tintOpacity,
       },
       resolution,
@@ -619,6 +657,45 @@ export function createLiquidLens(
     setScrollTracking(settings.trackScroll);
     setContentTracking(settings.trackContent);
     syncTo(frameRect.left - backdropRect.left, frameRect.top - backdropRect.top);
+    reconcileAdaptive();
+  }
+
+  /**
+   * Brings the adaptive layer in line with `settings.adaptive`: creates it when
+   * adaptivity is switched on (the layer then drives the frame's shadow, ink,
+   * and tint from the backdrop), tears it down when switched off. Idempotent,
+   * so it is safe to call at the end of every `update()`.
+   */
+  function reconcileAdaptive(): void {
+    const wanted = settings.adaptive;
+    if (wanted && !adaptive) {
+      const opts: AdaptiveOptions = wanted === true ? {} : wanted;
+      adaptive = createAdaptiveLayer(
+        frame,
+        backdrop,
+        {
+          // The adaptive layer reads the consumer's tint and writes back a
+          // tone-matched one; an opacity of 0 (or no tint) means "no tint to
+          // adapt", so it is reported as absent.
+          getTint: () =>
+            settings.tint != null && (settings.tintOpacity ?? 0.2) > 0
+              ? settings.tint
+              : undefined,
+          applyTint: (color) => {
+            adaptedTint = color;
+            update();
+          },
+        },
+        opts,
+      );
+      // First evaluation now that `adaptive` is assigned, so the re-entrant
+      // update() a tint adjustment triggers finds the layer and no-ops here.
+      adaptive.refresh(true);
+    } else if (!wanted && adaptive) {
+      adaptive.destroy();
+      adaptive = undefined;
+      adaptedTint = undefined;
+    }
   }
 
   // Map geometry depends on the frame's size; regenerate when it changes,
@@ -709,6 +786,10 @@ export function createLiquidLens(
       setScrollTracking(false);
       reducedMotion?.removeEventListener?.("change", onMotionPreferenceChange);
       resizeObserver?.disconnect();
+      // Restores the frame's box-shadow/color/--ll-ink before the lens
+      // restores position/overflow below.
+      adaptive?.destroy();
+      adaptive = undefined;
       refraction.remove();
       glassFilter.destroy();
       frame.removeAttribute(LENS_MARKER);

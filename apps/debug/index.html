@@ -770,9 +770,50 @@
         z-index: 1;
         cursor: grab;
         touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         box-shadow:
           0 4px 10px rgba(0, 0, 0, 0.25),
           0 10px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      /* The orb's label rides above the injected refraction layer (which has
+         no z-index) so it stays readable, and takes its colour from --ll-ink,
+         which the adaptive layer flips light/dark with the backdrop. The
+         fallback applies when adaptive is off. */
+      .lens-label {
+        position: relative;
+        z-index: 1;
+        margin: auto;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ll-ink, rgba(255, 255, 255, 0.9));
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+        user-select: none;
+        transition: color 200ms ease;
+      }
+
+      /* The reading spans the whole row (no left label) so the full
+         "luminance 0.42 · ink light" — and the longer n/a message — fit;
+         it wraps rather than clipping. */
+      .control-readout {
+        display: block;
+        min-height: 0;
+      }
+
+      .adaptive-readout {
+        display: block;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: var(--text-dim);
+        text-align: left;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       #previews {
@@ -1361,6 +1402,20 @@
       </section>
 
       <section class="group">
+        <h2>Adaptive</h2>
+        <div class="control">
+          <span class="control-name" title="Reads the backdrop under the lens and adapts shadow, ink, and tint to stay legible">backdrop</span>
+          <div class="presets control-wide" role="radiogroup" aria-label="Adaptive behaviour">
+            <button class="preset-btn is-active" data-adaptive="on" title="Glass reads the backdrop and adapts">on</button>
+            <button class="preset-btn" data-adaptive="off" title="Fixed appearance, no backdrop sampling">off</button>
+          </div>
+        </div>
+        <div class="control control-readout">
+          <output class="adaptive-readout" id="adaptive-readout">sampling…</output>
+        </div>
+      </section>
+
+      <section class="group">
         <h2>Kinetics</h2>
         <div class="control">
           <label class="control-name" for="stiffness">stiffness</label>
@@ -1411,7 +1466,7 @@
 
     <div id="stage">
       <div class="backdrop background" id="background">
-        <div class="lens" id="lens"></div>
+        <div class="lens" id="lens"><span class="lens-label" id="lens-label">drag</span></div>
         <div id="liquid-menu-wrapper">
           <div id="liquid-menu" class="menu-lens">
             <button class="menu-trigger" id="liquid-menu-trigger" type="button" aria-label="Quick actions" aria-haspopup="menu" aria-expanded="false">

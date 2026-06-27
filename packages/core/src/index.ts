@@ -26,3 +26,10 @@ export type {
 export { createLensFollower, makeLensDraggable } from "./follow";
 export type { MorphState, MorphFrame, LensMorphOptions, LensMorph } from "./morph";
 export { createLensMorph } from "./morph";
+export type {
+  BackdropLuminance,
+  BackdropLuminanceOptions,
+} from "./luminance";
+export { createBackdropLuminance, relativeLuminance } from "./luminance";
+export type { AdaptiveOptions, AdaptiveHooks, AdaptiveLayer } from "./adaptive";
+export { createAdaptiveLayer, adaptiveShadow, inkColor, adaptTint } from "./adaptive";
