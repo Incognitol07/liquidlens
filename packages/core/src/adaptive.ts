@@ -207,6 +207,15 @@ export interface AdaptiveLayer {
 
 /** Trailing delay after motion before taking a "settle" sample (tint regen). */
 const SETTLE_DELAY_MS = 160;
+/**
+ * Luminance is quantized to this many levels before the shadow/ink writes, so
+ * a sample that lands in the same bucket as the last one skips the DOM work
+ * (notably the per-frame box-shadow repaint). The step (1/200 ≈ 0.005) is well
+ * below the visible threshold of the shadow opacity, ink flip, and tint shift,
+ * so the dedup is lossless to the eye — the same fingerprint-skip the filter
+ * uses for its maps.
+ */
+const LUMINANCE_LEVELS = 200;
 
 /**
  * Wires a luminance probe to a frame's presentation. The lens creates one of
@@ -234,6 +243,9 @@ export function createAdaptiveLayer(
 
   let luminance: number | null = null;
   let inkDark: boolean | null = null;
+  // The quantized luminance last written to the shadow/ink, so a sample that
+  // hasn't moved a perceptible step skips those DOM writes.
+  let appliedKey: number | null = null;
   // The last tint colour pushed to the lens, so a stable backdrop doesn't
   // regenerate the filter every settle.
   let appliedTint: string | null = null;
@@ -296,8 +308,18 @@ export function createAdaptiveLayer(
       return;
     }
     luminance = l;
-    applyShadow(l);
-    applyInk(l);
+    // Shadow and ink are pure in luminance and written every live frame, so
+    // skip them when the sample lands in the same quantized bucket as the last
+    // — that drops the per-frame box-shadow repaint over uniform brightness.
+    const key = Math.round(l * LUMINANCE_LEVELS);
+    if (key !== appliedKey) {
+      appliedKey = key;
+      applyShadow(l);
+      applyInk(l);
+    }
+    // The tint runs only on settle and carries its own colour dedup, so it
+    // still gets its chance even when the bucket is unchanged (the first
+    // settle after a drag may be the first time a tint is applied at all).
     if (allowTint) {
       applyTint(l);
     }
