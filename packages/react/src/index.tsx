@@ -34,6 +34,26 @@ export type {
 };
 export { presets, performanceTier, Spring };
 
+// The adaptive surface is framework-agnostic and lives entirely in core; the
+// `adaptive` lens option (below) covers the common case, and these re-exports
+// give consumers the standalone probe, the layer factory, and the pure
+// luminance/shadow/ink/tint mappings without importing core directly.
+export {
+  createBackdropLuminance,
+  relativeLuminance,
+  createAdaptiveLayer,
+  adaptiveShadow,
+  inkColor,
+  adaptTint,
+} from "@liquidlens/core";
+export type {
+  AdaptiveOptions,
+  AdaptiveHooks,
+  AdaptiveLayer,
+  BackdropLuminance,
+  BackdropLuminanceOptions,
+} from "@liquidlens/core";
+
 export {
   useLensFollow,
   useDraggableLens,
@@ -75,6 +95,7 @@ const LENS_OPTION_KEYS = new Set<string>([
   "trackScroll",
   "trackContent",
   "onReady",
+  "adaptive",
 ]);
 
 // --- Dev-only guard against silently-swallowed props -----------------------
@@ -259,6 +280,7 @@ export function useLiquidLens(
     options.respectReducedMotion,
     options.trackScroll,
     options.trackContent,
+    options.adaptive,
   ]);
 
   return lensRef;
