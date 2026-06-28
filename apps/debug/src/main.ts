@@ -335,6 +335,13 @@ const MENU_OPTIONS = {
  */
 let adaptiveEnabled = true;
 
+/**
+ * Accessibility modifier state. "auto" follows the OS preference; on/off force
+ * the treatment so it can be previewed without changing OS settings.
+ */
+let reducedTransparency: boolean | "auto" = "auto";
+let increasedContrast: boolean | "auto" = "auto";
+
 /** Lens options at this instant; borderRadius follows the animated spring. */
 function currentOptions(): LiquidLensOptions {
   return {
@@ -342,6 +349,8 @@ function currentOptions(): LiquidLensOptions {
     trackScroll: true,
     trackContent: true,
     adaptive: adaptiveEnabled,
+    reducedTransparency,
+    increasedContrast,
     borderRadius: sizeR(),
     shape: shapeName,
     depth: num("depth"),
@@ -797,6 +806,36 @@ function setAdaptive(enabled: boolean): void {
 for (const button of adaptiveButtons) {
   button.addEventListener("click", () => setAdaptive(button.dataset.adaptive === "on"));
 }
+
+// Accessibility modifiers. auto/on/off map straight onto the lens options; the
+// lens then frosts (reduced transparency) or flattens + rings (increased
+// contrast). Forcing on/off lets the treatment be seen without OS settings.
+function wireA11ySegment(
+  attr: "rt" | "ic",
+  apply: (value: boolean | "auto") => void,
+): void {
+  const buttons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(`[data-${attr}]`),
+  );
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const raw = button.dataset[attr] as "auto" | "on" | "off";
+      for (const other of buttons) {
+        other.classList.toggle("is-active", other === button);
+      }
+      apply(raw === "auto" ? "auto" : raw === "on");
+    });
+  }
+}
+
+wireA11ySegment("rt", (value) => {
+  reducedTransparency = value;
+  lens?.update({ reducedTransparency: value });
+});
+wireA11ySegment("ic", (value) => {
+  increasedContrast = value;
+  lens?.update({ increasedContrast: value });
+});
 
 // Swatches swap the backdrop image through a CSS custom property, not a DOM
 // mutation, so neither probe's content observer sees it. Drop their cached

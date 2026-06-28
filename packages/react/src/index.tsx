@@ -54,6 +54,12 @@ export type {
   BackdropLuminanceOptions,
 } from "@liquidlens/core";
 
+// Accessibility modifiers (reduced transparency, increased contrast) ride the
+// `reducedTransparency`/`increasedContrast` lens options, honoured automatically
+// from the OS; the pure helper is re-exported for consumers who reuse it.
+export { accessibleEffect, CONTRAST_RING, FROST_BLUR } from "@liquidlens/core";
+export type { AccessibilityFlags, AccessibleEffect } from "@liquidlens/core";
+
 export {
   useLensFollow,
   useDraggableLens,
@@ -92,6 +98,8 @@ const LENS_OPTION_KEYS = new Set<string>([
   "borderRadius",
   "shape",
   "respectReducedMotion",
+  "reducedTransparency",
+  "increasedContrast",
   "trackScroll",
   "trackContent",
   "onReady",
@@ -278,6 +286,8 @@ export function useLiquidLens(
     options.borderRadius,
     options.shape,
     options.respectReducedMotion,
+    options.reducedTransparency,
+    options.increasedContrast,
     options.trackScroll,
     options.trackContent,
     options.adaptive,

@@ -33,3 +33,5 @@ export type {
 export { createBackdropLuminance, relativeLuminance } from "./luminance";
 export type { AdaptiveOptions, AdaptiveHooks, AdaptiveLayer } from "./adaptive";
 export { createAdaptiveLayer, adaptiveShadow, inkColor, adaptTint } from "./adaptive";
+export type { AccessibilityFlags, AccessibleEffect } from "./a11y";
+export { accessibleEffect, CONTRAST_RING, FROST_BLUR } from "./a11y";

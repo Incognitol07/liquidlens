@@ -1,3 +1,4 @@
+import { accessibleEffect, CONTRAST_RING, type AccessibilityFlags } from "./a11y";
 import { createAdaptiveLayer, type AdaptiveLayer, type AdaptiveOptions } from "./adaptive";
 import { createGlassFilter } from "./filter";
 import { presets } from "./presets";
@@ -56,6 +57,21 @@ export interface LiquidLensOptions {
    * The static refraction itself is unaffected; it is not motion.
    */
   respectReducedMotion?: boolean;
+  /**
+   * The frosted treatment for the OS "reduced transparency" setting: the glass
+   * blurs more and drops chromatic aberration so it obscures more of the
+   * content behind it. `"auto"` (the default) follows the OS preference; `true`
+   * forces it on (e.g. an in-app accessibility toggle), `false` ignores it.
+   */
+  reducedTransparency?: boolean | "auto";
+  /**
+   * The high-contrast treatment for the OS "increased contrast" setting: the
+   * refraction flattens, the specular shimmer drops, and a contrasting border
+   * is drawn around the frame so the element reads as a crisp high-contrast
+   * chip. `"auto"` (the default) follows the OS preference; `true` forces it
+   * on, `false` ignores it.
+   */
+  increasedContrast?: boolean | "auto";
   /**
    * When true (the default), the lens listens for scrolls anywhere in the
    * document and keeps the refraction aligned by itself: the backdrop
@@ -182,6 +198,8 @@ function defaultsFor(win: (Window & typeof globalThis) | null): ResolvedOptions 
   return {
     ...presets[performanceTier(win) === "low" ? "lean" : "full"],
     respectReducedMotion: true,
+    reducedTransparency: "auto",
+    increasedContrast: "auto",
     trackScroll: true,
     trackContent: true,
   };
@@ -343,6 +361,25 @@ export function createLiquidLens(
 
   const onMotionPreferenceChange = (): void => setIntensity(1);
   reducedMotion?.addEventListener?.("change", onMotionPreferenceChange);
+
+  // The other two accessibility treatments (reduced transparency, increased
+  // contrast). Each option is `"auto"` (follow the OS query), `true` (force on),
+  // or `false` (ignore). When the OS preference flips, re-apply.
+  const mqlReducedTransparency = doc.defaultView?.matchMedia?.(
+    "(prefers-reduced-transparency: reduce)",
+  );
+  const mqlIncreasedContrast = doc.defaultView?.matchMedia?.("(prefers-contrast: more)");
+  const resolveA11y = (
+    setting: boolean | "auto",
+    mql: MediaQueryList | undefined,
+  ): boolean => (setting === "auto" ? mql?.matches === true : setting === true);
+  const accessibilityFlags = (): AccessibilityFlags => ({
+    reducedTransparency: resolveA11y(settings.reducedTransparency, mqlReducedTransparency),
+    increasedContrast: resolveA11y(settings.increasedContrast, mqlIncreasedContrast),
+  });
+  const onA11yPreferenceChange = (): void => update();
+  mqlReducedTransparency?.addEventListener?.("change", onA11yPreferenceChange);
+  mqlIncreasedContrast?.addEventListener?.("change", onA11yPreferenceChange);
 
   // Refraction layer: holds the backdrop clone and applies the filter to it.
   // The shine layer must stay outside this element so the highlight is not
@@ -627,20 +664,33 @@ export function createLiquidLens(
     const backdropRect = backdrop.getBoundingClientRect();
     mirrorScroll(backdrop);
 
+    // Fold in the active accessibility treatments (reduced transparency frosts;
+    // increased contrast flattens). A no-op when neither is in force.
+    const effect = accessibleEffect(
+      {
+        depth: settings.depth,
+        aberration: settings.aberration,
+        blur: settings.blur,
+        saturation: settings.saturation,
+        specular: settings.specular,
+      },
+      accessibilityFlags(),
+    );
+
     glassFilter.update(
       {
         width: lastWidth,
         height: lastHeight,
         borderRadius,
         shape: resolveShape(settings.shape, borderRadius),
-        depth: settings.depth,
+        depth: effect.depth,
         curvature: settings.curvature,
         splay: settings.splay,
-        aberration: settings.aberration,
-        blur: settings.blur,
-        saturation: settings.saturation,
+        aberration: effect.aberration,
+        blur: effect.blur,
+        saturation: effect.saturation,
         lightAngle: settings.lightAngle,
-        specular: settings.specular,
+        specular: effect.specular,
         specularColor: settings.specularColor,
         specularSharpness: settings.specularSharpness,
         tint: adaptedTint ?? settings.tint,
@@ -658,6 +708,32 @@ export function createLiquidLens(
     setContentTracking(settings.trackContent);
     syncTo(frameRect.left - backdropRect.left, frameRect.top - backdropRect.top);
     reconcileAdaptive();
+    reconcileContrastRing();
+  }
+
+  // A contrasting border overlay drawn under increased contrast. It is a
+  // separate inset-ring layer (not the frame's box-shadow, which the adaptive
+  // layer owns) clipped to the frame's shape by its `overflow: hidden`.
+  let contrastRing: HTMLElement | undefined;
+
+  function reconcileContrastRing(): void {
+    const want = resolveA11y(settings.increasedContrast, mqlIncreasedContrast);
+    if (want && !contrastRing) {
+      contrastRing = doc.createElement("div");
+      contrastRing.setAttribute("aria-hidden", "true");
+      Object.assign(contrastRing.style, {
+        position: "absolute",
+        inset: "0",
+        borderRadius: "inherit",
+        pointerEvents: "none",
+        boxShadow: CONTRAST_RING,
+        zIndex: "2",
+      });
+      frame.appendChild(contrastRing);
+    } else if (!want && contrastRing) {
+      contrastRing.remove();
+      contrastRing = undefined;
+    }
   }
 
   /**
@@ -785,11 +861,15 @@ export function createLiquidLens(
       setContentTracking(false);
       setScrollTracking(false);
       reducedMotion?.removeEventListener?.("change", onMotionPreferenceChange);
+      mqlReducedTransparency?.removeEventListener?.("change", onA11yPreferenceChange);
+      mqlIncreasedContrast?.removeEventListener?.("change", onA11yPreferenceChange);
       resizeObserver?.disconnect();
       // Restores the frame's box-shadow/color/--ll-ink before the lens
       // restores position/overflow below.
       adaptive?.destroy();
       adaptive = undefined;
+      contrastRing?.remove();
+      contrastRing = undefined;
       refraction.remove();
       glassFilter.destroy();
       frame.removeAttribute(LENS_MARKER);
