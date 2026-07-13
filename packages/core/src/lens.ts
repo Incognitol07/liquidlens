@@ -391,9 +391,39 @@ export function createLiquidLens(
     filter: glassFilter.cssFilter,
   });
 
+  /**
+   * Copies an element's full computed style onto its clone as inline style.
+   * Id-scoped CSS (`#backdrop { background: … }`) stops matching once the
+   * clone's ids are stripped below, which would silently drop styling — a
+   * backdrop's wallpaper, an id-positioned child — from the refraction, so
+   * every id-bearing element gets its resolved style baked in first. Runs
+   * only for those elements, and pseudo-element styles are not carried over.
+   */
+  function inlineComputedStyle(source: Element, target: HTMLElement): void {
+    const win = source.ownerDocument.defaultView;
+    if (!win) {
+      return;
+    }
+    const computed = win.getComputedStyle(source);
+    for (let i = 0; i < computed.length; i++) {
+      const property = computed.item(i);
+      target.style.setProperty(property, computed.getPropertyValue(property));
+    }
+  }
+
   function buildClone(): HTMLElement {
     const built = backdrop.cloneNode(true) as HTMLElement;
     built.setAttribute("aria-hidden", "true");
+    // Bake id-dependent styling in while the two trees are still identical
+    // (parallel [id] queries walk them in the same document order); the
+    // marker-removal below would desynchronise the lists.
+    if (backdrop.id) {
+      inlineComputedStyle(backdrop, built);
+    }
+    const sourceIdElements = backdrop.querySelectorAll("[id]");
+    built.querySelectorAll("[id]").forEach((el, i) => {
+      inlineComputedStyle(sourceIdElements[i], el as HTMLElement);
+    });
     built.removeAttribute("id");
     built.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
     built.querySelectorAll(`[${LENS_MARKER}]`).forEach((el) => el.remove());
