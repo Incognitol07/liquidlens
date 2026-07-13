@@ -30,7 +30,7 @@ importers:
         specifier: ^8.0.2
         version: 8.0.2(semantic-release@25.0.5(typescript@5.9.3))
 
-  apps/debug:
+  apps/site:
     dependencies:
       '@liquidlens/core':
         specifier: workspace:*

@@ -193,11 +193,11 @@ const lens = useRef<LiquidLensHandle>(null);
 pnpm install
 pnpm build
 pnpm test
-pnpm --filter @liquidlens/debug dev
+pnpm --filter site dev
 ```
 
 Workspace:
 
 - `packages/core`: the main library
 - `packages/react`: React bindings
-- `apps/debug`: playground for tuning the effect
+- `apps/site`: the website — landing page at `/`, tuning playground at `/panel`
