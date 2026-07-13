@@ -143,7 +143,10 @@ function refreshLabels(): void {
 // across reloads and defaults to the OS preference.
 
 type Theme = "dark" | "light";
-const THEME_KEY = "liquidlens-debug-theme";
+// Shared with the landing page so the choice persists across / and /panel.
+// The old debug-only key is read as a migration fallback.
+const THEME_KEY = "liquidlens-theme";
+const LEGACY_THEME_KEY = "liquidlens-debug-theme";
 const themeToggle = document.getElementById("theme-toggle") as HTMLButtonElement;
 
 function applyTheme(theme: Theme): void {
@@ -155,7 +158,8 @@ function applyTheme(theme: Theme): void {
   );
 }
 
-const storedTheme = localStorage.getItem(THEME_KEY);
+const storedTheme =
+  localStorage.getItem(THEME_KEY) ?? localStorage.getItem(LEGACY_THEME_KEY);
 applyTheme(
   storedTheme === "light" || storedTheme === "dark"
     ? storedTheme

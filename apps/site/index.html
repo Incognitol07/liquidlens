@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>liquidlens</title>
+    <meta
+      name="description"
+      content="Real refractive glass for the web. The desktop on this page is drawn with liquidlens: every pane of glass is bending the wallpaper behind it."
+    />
+    <meta property="og:title" content="liquidlens" />
+    <meta
+      property="og:description"
+      content="Real refractive glass for the web. No WebGL, no canvas. SVG filters and springs."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* SF Pro on Apple hardware, Inter (its closest metric cousin) everywhere
+         else. The scale is macOS's: 13px UI text, 11px labels. */
+      :root {
+        color-scheme: light;
+        --accent: #007aff;
+        --ink: #1d1d1f;
+        --ink-2: rgba(29, 29, 31, 0.62);
+        --bar-ink: #14141a;
+        --bar-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
+        --glass-fallback: rgba(246, 246, 248, 0.8);
+        --edge: rgba(0, 0, 0, 0.1);
+        --edge-lit: rgba(255, 255, 255, 0.5);
+        --hover: rgba(255, 255, 255, 0.42);
+        --chip: rgba(255, 255, 255, 0.4);
+        --btn: rgba(255, 255, 255, 0.5);
+        --shadow-win: 0 30px 80px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.16);
+        --shadow-menu: 0 18px 50px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.12);
+        --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter",
+          "Segoe UI", system-ui, sans-serif;
+        --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        font-size: 13px;
+        color: var(--ink);
+        -webkit-tap-highlight-color: transparent;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Desktop                                                            */
+
+      #desktop {
+        position: relative;
+        height: 100dvh;
+        overflow: hidden;
+        user-select: none;
+      }
+
+      /* The wallpaper is styled through a class, not the id: the lens clones
+         the backdrop and strips ids (to avoid duplicates), so id-scoped
+         styles would vanish inside the refraction. */
+      .wallpaper {
+        background: #7a8494 url("/wallpaper.jpg") center / cover no-repeat;
+      }
+
+      /* Glass frames fall back to a plain frost until liquidlens takes over. */
+      .glass {
+        background: var(--glass-fallback);
+      }
+
+      .js .glass {
+        background: transparent;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Menu bar: fully transparent, text straight on the wallpaper         */
+
+      #menubar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 30;
+        height: 37px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        color: var(--bar-ink);
+      }
+
+      .mb-left,
+      .mb-right {
+        display: flex;
+        align-items: center;
+        height: 100%;
+      }
+
+      .mb-right {
+        gap: 4px;
+      }
+
+      .mb-item {
+        display: flex;
+        align-items: center;
+        height: 25px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-shadow: var(--bar-shadow);
+        white-space: nowrap;
+      }
+
+      .mb-item.is-open {
+        background: var(--hover);
+      }
+
+      .mb-item:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
+
+      .mb-app {
+        font-weight: 700;
+      }
+
+      .mb-logo svg {
+        width: 15px;
+        height: 15px;
+        display: block;
+        filter: drop-shadow(var(--bar-shadow));
+      }
+
+      .mb-status {
+        display: flex;
+        align-items: center;
+        height: 25px;
+        padding: 0 7px;
+      }
+
+      .mb-status svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+        filter: drop-shadow(var(--bar-shadow));
+      }
+
+      #clock {
+        padding: 0 8px 0 6px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        text-shadow: var(--bar-shadow);
+      }
+
+      /* The camera notch. Reads MacBook without costing any real estate. */
+      #notch {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 168px;
+        height: 32px;
+        background: #000;
+        border-radius: 0 0 11px 11px;
+        pointer-events: none;
+      }
+
+      @media (max-width: 900px) {
+        #notch {
+          display: none;
+        }
+
+        .mb-menu {
+          display: none;
+        }
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Dropdown menus: one shared glass panel, repositioned per menu       */
+
+      #menu-popup {
+        position: absolute;
+        top: 39px;
+        left: 12px;
+        z-index: 40;
+        min-width: 230px;
+        padding: 5px;
+        border-radius: 13px;
+        box-shadow:
+          var(--shadow-menu),
+          0 0 0 1px var(--edge),
+          0 1px 0 var(--edge-lit) inset;
+        overflow: hidden;
+      }
+
+      #menu-popup[hidden] {
+        display: none;
+      }
+
+      .menu-row {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        width: 100%;
+        height: 26px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      .menu-row:hover,
+      .menu-row:focus-visible {
+        background: var(--accent);
+        color: #fff;
+        outline: none;
+      }
+
+      .menu-row:hover .menu-hint,
+      .menu-row:focus-visible .menu-hint {
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .menu-hint {
+        color: var(--ink-2);
+        font-size: 12.5px;
+        letter-spacing: 0.04em;
+      }
+
+      .menu-sep {
+        height: 1px;
+        margin: 5px 10px;
+        background: var(--edge);
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Desktop icons                                                      */
+
+      /* Class-styled (not by id) so the icons keep their layout inside the
+         backdrop clones and refract correctly under the glass. */
+      .desk-icons {
+        position: absolute;
+        top: 55px;
+        right: 18px;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .desk-icon {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        width: 94px;
+        padding: 4px 2px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+
+      .desk-icon:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 0;
+      }
+
+      .di-icon {
+        width: 52px;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+      }
+
+      .di-icon svg {
+        width: 26px;
+        height: 26px;
+      }
+
+      .di-label {
+        max-width: 100%;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .desk-icon.is-selected .di-label {
+        background: var(--accent);
+        text-shadow: none;
+      }
+
+      .desk-icon.is-selected .di-icon {
+        box-shadow:
+          0 6px 16px rgba(0, 0, 0, 0.25),
+          0 0 0 3px rgba(255, 255, 255, 0.35);
+      }
+
+      /* The document icon is a white page, not a tile. */
+      .di-doc {
+        background: linear-gradient(180deg, #ffffff, #eef0f4);
+        border-radius: 8px;
+        clip-path: polygon(0 0, 72% 0, 100% 18%, 100% 100%, 0 100%);
+      }
+
+      .di-panel {
+        background: linear-gradient(160deg, #4a4f59, #17191e);
+        color: #fff;
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Window: an About panel in Tahoe glass                              */
+
+      #window {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 20;
+        width: min(440px, calc(100vw - 24px));
+        border-radius: 19px;
+        box-shadow:
+          var(--shadow-win),
+          0 0 0 1px var(--edge),
+          0 1px 0 var(--edge-lit) inset;
+        overflow: hidden;
+      }
+
+      #titlebar {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        height: 44px;
+        padding: 0 16px;
+        cursor: default;
+        touch-action: none;
+      }
+
+      .lights {
+        display: flex;
+        gap: 8px;
+      }
+
+      .light {
+        width: 12px;
+        height: 12px;
+        padding: 0;
+        border-radius: 50%;
+        border: 0.5px solid rgba(0, 0, 0, 0.2);
+      }
+
+      .light:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .light.close {
+        background: #ff5f57;
+      }
+
+      .light.min {
+        background: #febc2e;
+      }
+
+      .light.zoom {
+        background: #28c840;
+      }
+
+      .light svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        opacity: 0;
+        transition: opacity 90ms ease;
+      }
+
+      .lights:hover .light svg {
+        opacity: 1;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .light svg {
+          transition: none;
+        }
+      }
+
+      .win-body {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 6px 34px 30px;
+        text-align: center;
+      }
+
+      /* The app icon: a lens tile, drawn once, reused in the dock. */
+      .app-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 17px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 42%),
+          linear-gradient(150deg, #6cb8ff 0%, #3d7bfd 46%, #7a5cff 100%);
+        box-shadow:
+          0 10px 24px rgba(35, 80, 200, 0.4),
+          0 1px 0 rgba(255, 255, 255, 0.55) inset;
+        color: #fff;
+      }
+
+      .app-icon svg {
+        width: 38px;
+        height: 38px;
+        display: block;
+      }
+
+      .win-body h1 {
+        margin: 16px 0 2px;
+        font-size: 21px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      /* Prose follows the frame's adaptive ink (the lens writes `color` and
+         --ll-ink onto #window); anything with its own color declaration opts
+         out, so the controls below keep their fixed material. */
+      .win-sub {
+        margin: 0 0 14px;
+        font-size: 13px;
+        color: color-mix(in srgb, currentColor 62%, transparent);
+      }
+
+      .win-tag {
+        margin: 0 0 20px;
+        max-width: 32em;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .chip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 9px 13px;
+        border: 1px solid var(--edge);
+        border-radius: 9px;
+        background: var(--chip);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 12px;
+        transition: background 120ms ease;
+        user-select: text;
+      }
+
+      .chip:hover {
+        background: var(--hover);
+      }
+
+      .chip:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .chip .prompt {
+        color: var(--ink-2);
+        user-select: none;
+      }
+
+      .chip .cmd {
+        flex: 1;
+        text-align: left;
+      }
+
+      .chip svg {
+        width: 13px;
+        height: 13px;
+        display: block;
+        color: var(--ink-2);
+      }
+
+      .t-icon-swap {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+      }
+
+      .t-icon-swap .t-icon {
+        grid-area: 1 / 1;
+        display: inline-grid;
+        place-items: center;
+        transition:
+          opacity 250ms ease-in-out,
+          filter 250ms ease-in-out,
+          transform 250ms ease-in-out;
+      }
+
+      .t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+      .t-icon-swap[data-state="b"] .t-icon[data-icon="b"] {
+        opacity: 1;
+        filter: blur(0);
+        transform: scale(1);
+      }
+
+      .t-icon-swap[data-state="a"] .t-icon[data-icon="b"],
+      .t-icon-swap[data-state="b"] .t-icon[data-icon="a"] {
+        opacity: 0;
+        filter: blur(2px);
+        transform: scale(0.25);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .t-icon-swap .t-icon {
+          transition: none !important;
+        }
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      /* macOS push buttons: capsules, 13px text. */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 30px;
+        padding: 0 15px;
+        border: 1px solid var(--edge);
+        border-radius: 999px;
+        background: var(--btn);
+        color: var(--ink);
+        font: inherit;
+        font-weight: 500;
+        text-decoration: none;
+        transition: filter 120ms ease, background 120ms ease;
+      }
+
+      .btn:hover {
+        background: var(--hover);
+      }
+
+      .btn:active {
+        filter: brightness(0.92);
+      }
+
+      .btn:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        outline-offset: 1px;
+      }
+
+      .btn.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #fff;
+      }
+
+      .btn.primary:hover {
+        background: var(--accent);
+        filter: brightness(1.08);
+      }
+
+      #window.hidden {
+        pointer-events: none;
+        opacity: 0;
+        transform: scale(0.5) translateY(42vh) !important;
+        transition:
+          opacity 300ms ease,
+          transform 380ms cubic-bezier(0.32, 0.72, 0, 1);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #window.hidden {
+          transition: none;
+        }
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Dock                                                               */
+
+      #dock-wrap {
+        position: absolute;
+        bottom: 8px;
+        left: 0;
+        right: 0;
+        z-index: 30;
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        pointer-events: none;
+      }
+
+      /* Magnification is done in layout, like macOS: hovered tiles get wider
+         and taller, the flex row widens around them (staying centered via
+         the wrapper), and grown icons rise past the top of the bar. The
+         glass slab is pinned to the bottom and stretched to the row's width
+         each frame. */
+      #dock {
+        position: relative;
+        display: flex;
+        align-items: flex-end;
+        gap: 9px;
+        padding: 8px 12px;
+        pointer-events: auto;
+      }
+
+      #dock-bg {
+        position: absolute;
+        left: 50%;
+        bottom: 0;
+        transform: translateX(-50%);
+        transform-origin: 50% 100%;
+        border-radius: 25px;
+        box-shadow:
+          0 14px 40px rgba(0, 0, 0, 0.3),
+          0 0 0 1px var(--edge),
+          0 1px 0 var(--edge-lit) inset;
+        pointer-events: none;
+      }
+
+      .dock-item {
+        position: relative;
+        z-index: 1;
+        width: 52px;
+        height: 52px;
+        flex-shrink: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 13px;
+        background: transparent;
+        color: inherit;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+      }
+
+      .dock-item:focus-visible {
+        outline: 2px solid #fff;
+        outline-offset: 2px;
+      }
+
+      /* Every dock icon is a colorful squircle tile, like the real thing. */
+      .tile {
+        width: 100%;
+        height: 100%;
+        border-radius: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        box-shadow:
+          0 4px 10px rgba(0, 0, 0, 0.25),
+          0 1px 0 rgba(255, 255, 255, 0.35) inset;
+      }
+
+      /* Glyphs scale with the tile as it magnifies. */
+      .tile svg {
+        width: 50%;
+        height: 50%;
+        display: block;
+      }
+
+      .tile-app {
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 42%),
+          linear-gradient(150deg, #6cb8ff 0%, #3d7bfd 46%, #7a5cff 100%);
+      }
+
+      .tile-panel {
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 45%),
+          linear-gradient(160deg, #4a4f59, #17191e);
+      }
+
+      .tile-github {
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 45%),
+          linear-gradient(160deg, #3b4048, #101317);
+      }
+
+      .tile-npm {
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%),
+          linear-gradient(160deg, #e0524a, #b0221b);
+      }
+
+      .tile-trash {
+        background:
+          radial-gradient(120% 90% at 22% 12%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08) 55%),
+          linear-gradient(160deg, rgba(226, 229, 236, 0.85), rgba(168, 174, 186, 0.85));
+        color: #5b616d;
+      }
+
+      /* Running indicator under the app tile. */
+      .dock-item .dot {
+        position: absolute;
+        bottom: -6px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--bar-ink);
+        opacity: 0;
+        transition: opacity 150ms ease;
+      }
+
+      .dock-item.running .dot {
+        opacity: 0.85;
+      }
+
+      /* macOS tooltip above the icon. */
+      .dock-item::after {
+        content: attr(data-label);
+        position: absolute;
+        bottom: calc(100% + 14px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 3px 10px;
+        border-radius: 6px;
+        background: var(--glass-fallback);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22), 0 0 0 1px var(--edge);
+        color: var(--ink);
+        font-size: 12px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+      }
+
+      .dock-item:hover::after,
+      .dock-item:focus-visible::after {
+        opacity: 1;
+      }
+
+      .dock-sep {
+        width: 1px;
+        height: 46px;
+        align-self: flex-end;
+        flex-shrink: 0;
+        margin: 0 1px 3px;
+        background: var(--edge-lit);
+        box-shadow: 1px 0 0 var(--edge);
+      }
+
+      @keyframes dock-bounce {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        35% {
+          transform: translateY(-16px);
+        }
+        65% {
+          transform: translateY(0);
+        }
+        82% {
+          transform: translateY(-6px);
+        }
+      }
+
+      .dock-item.bounce {
+        animation: dock-bounce 550ms ease;
+      }
+
+      @keyframes trash-shake {
+        0%,
+        100% {
+          transform: rotate(0);
+        }
+        25% {
+          transform: rotate(-7deg);
+        }
+        50% {
+          transform: rotate(6deg);
+        }
+        75% {
+          transform: rotate(-4deg);
+        }
+      }
+
+      .dock-item.shake .tile {
+        animation: trash-shake 320ms ease;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .dock-item.bounce,
+        .dock-item.shake .tile {
+          animation: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .dock-item {
+          width: 44px;
+          height: 44px;
+        }
+
+        .tile svg {
+          width: 22px;
+          height: 22px;
+        }
+
+        #dock {
+          gap: 7px;
+          border-radius: 21px;
+        }
+
+        .desk-icons {
+          top: 46px;
+          right: 8px;
+        }
+
+        .win-body {
+          padding: 4px 22px 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="desktop" class="wallpaper">
+      <!-- Marked so no lens refracts them: the bar and dock float above the
+           glass plane, and their id-scoped styles would break in clones. -->
+      <header id="menubar" data-liquidlens>
+        <div class="mb-left">
+          <button class="mb-item mb-logo" data-menu="logo" aria-label="liquidlens menu" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1.6c2 2.6 4.6 5.3 4.6 8a4.6 4.6 0 1 1-9.2 0c0-2.7 2.6-5.4 4.6-8z" />
+              <path d="M5.9 9.4a2.6 2.6 0 0 0 1.8 2.5" stroke="rgba(255,255,255,0.75)" stroke-width="1.1" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button class="mb-item mb-app" data-menu="app" aria-haspopup="menu" aria-expanded="false">liquidlens</button>
+          <button class="mb-item mb-menu" data-menu="file" aria-haspopup="menu" aria-expanded="false">File</button>
+          <button class="mb-item mb-menu" data-menu="edit" aria-haspopup="menu" aria-expanded="false">Edit</button>
+          <button class="mb-item mb-menu" data-menu="view" aria-haspopup="menu" aria-expanded="false">View</button>
+          <button class="mb-item mb-menu" data-menu="window" aria-haspopup="menu" aria-expanded="false">Window</button>
+          <button class="mb-item mb-menu" data-menu="help" aria-haspopup="menu" aria-expanded="false">Help</button>
+        </div>
+        <div id="notch" aria-hidden="true"></div>
+        <div class="mb-right">
+          <span class="mb-status" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M2.2 6.4a8.4 8.4 0 0 1 11.6 0" />
+              <path d="M4.4 8.8a5.2 5.2 0 0 1 7.2 0" />
+              <path d="M6.6 11.1a2.2 2.2 0 0 1 2.8 0" />
+              <circle cx="8" cy="13.2" r="0.9" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <span class="mb-status" aria-hidden="true">
+            <svg viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.1">
+              <rect x="0.8" y="1" width="17.5" height="10" rx="2.8" />
+              <rect x="2.4" y="2.6" width="12.5" height="6.8" rx="1.6" fill="currentColor" stroke="none" />
+              <path d="M20 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <span id="clock" aria-hidden="true"></span>
+        </div>
+      </header>
+
+      <div id="menu-popup" class="glass" data-liquidlens role="menu" hidden>
+        <div id="menu-rows"></div>
+      </div>
+
+      <div id="desk-icons" class="desk-icons">
+        <button class="desk-icon" data-href="/panel/" type="button">
+          <span class="di-icon di-panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <line x1="6" y1="19" x2="6" y2="13" />
+              <line x1="6" y1="9" x2="6" y2="5" />
+              <line x1="12" y1="19" x2="12" y2="11" />
+              <line x1="12" y1="7" x2="12" y2="5" />
+              <line x1="18" y1="19" x2="18" y2="15" />
+              <line x1="18" y1="11" x2="18" y2="5" />
+              <line x1="4" y1="13" x2="8" y2="13" />
+              <line x1="10" y1="7" x2="14" y2="7" />
+              <line x1="16" y1="15" x2="20" y2="15" />
+            </svg>
+          </span>
+          <span class="di-label">Panel.app</span>
+        </button>
+        <button class="desk-icon" data-href="https://github.com/Incognitol07/liquidlens#readme" type="button">
+          <span class="di-icon di-doc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#8a90a0" stroke-width="1.5" stroke-linecap="round">
+              <path d="M7 8.5h10M7 12h10M7 15.5h6" />
+            </svg>
+          </span>
+          <span class="di-label">README.md</span>
+        </button>
+      </div>
+
+      <section id="window" class="glass" data-liquidlens aria-label="About liquidlens">
+        <div id="titlebar">
+          <div class="lights">
+            <button class="light close" id="light-close" type="button" aria-label="Close window">
+              <svg viewBox="0 0 12 12" stroke="rgba(77,0,0,0.65)" stroke-width="1.1" stroke-linecap="round">
+                <path d="M3.7 3.7l4.6 4.6M8.3 3.7l-4.6 4.6" />
+              </svg>
+            </button>
+            <button class="light min" id="light-min" type="button" aria-label="Minimize window">
+              <svg viewBox="0 0 12 12" stroke="rgba(90,60,0,0.7)" stroke-width="1.1" stroke-linecap="round">
+                <path d="M3.2 6h5.6" />
+              </svg>
+            </button>
+            <button class="light zoom" id="light-zoom" type="button" aria-label="Center window">
+              <svg viewBox="0 0 12 12" fill="rgba(0,70,0,0.6)">
+                <path d="M3.4 6.9v1.7h1.7zM8.6 5.1V3.4H6.9z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="win-body">
+          <span class="app-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M7.8 10.2a5 5 0 0 1 2.6-2.3" />
+            </svg>
+          </span>
+          <h1>liquidlens</h1>
+          <p class="win-sub">Liquid glass for the web</p>
+          <p class="win-tag">
+            Every pane on this desktop is a lens refracting the wallpaper
+            behind it. SVG filters and springs, no WebGL, no canvas.
+          </p>
+          <button class="chip" id="install" type="button" aria-label="Copy install command">
+            <span class="prompt" aria-hidden="true">$</span>
+            <span class="cmd">pnpm add @liquidlens/core</span>
+            <span class="t-icon-swap" id="install-swap" data-state="a" aria-hidden="true">
+              <span class="t-icon" data-icon="a">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+                  <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
+                </svg>
+              </span>
+              <span class="t-icon" data-icon="b">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3.5 8.5l3 3 6-7" />
+                </svg>
+              </span>
+            </span>
+          </button>
+          <div class="actions">
+            <a class="btn primary" href="/panel/">Open the Panel</a>
+            <a class="btn" href="https://github.com/Incognitol07/liquidlens">GitHub</a>
+          </div>
+        </div>
+      </section>
+
+      <div id="dock-wrap" data-liquidlens>
+        <nav id="dock" aria-label="Dock">
+          <div id="dock-bg" class="glass" data-liquidlens aria-hidden="true"></div>
+          <button class="dock-item running" id="dock-app" data-label="liquidlens" type="button">
+            <span class="tile tile-app">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M7.8 10.2a5 5 0 0 1 2.6-2.3" />
+              </svg>
+            </span>
+            <span class="dot"></span>
+          </button>
+          <a class="dock-item" href="/panel/" data-label="Panel">
+            <span class="tile tile-panel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <line x1="6" y1="19" x2="6" y2="13" />
+                <line x1="6" y1="9" x2="6" y2="5" />
+                <line x1="12" y1="19" x2="12" y2="11" />
+                <line x1="12" y1="7" x2="12" y2="5" />
+                <line x1="18" y1="19" x2="18" y2="15" />
+                <line x1="18" y1="11" x2="18" y2="5" />
+                <line x1="4" y1="13" x2="8" y2="13" />
+                <line x1="10" y1="7" x2="14" y2="7" />
+                <line x1="16" y1="15" x2="20" y2="15" />
+              </svg>
+            </span>
+            <span class="dot"></span>
+          </a>
+          <a class="dock-item" href="https://github.com/Incognitol07/liquidlens" data-label="GitHub">
+            <span class="tile tile-github">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.56 9.56 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z" />
+              </svg>
+            </span>
+            <span class="dot"></span>
+          </a>
+          <a class="dock-item" href="https://www.npmjs.com/package/@liquidlens/core" data-label="npm">
+            <span class="tile tile-npm">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="#fff" stroke-width="1.5" />
+                <path d="M8 16V8h8v8h-2.6V10.6h-2V16z" fill="#fff" />
+              </svg>
+            </span>
+            <span class="dot"></span>
+          </a>
+          <span class="dock-sep" aria-hidden="true"></span>
+          <button class="dock-item" id="dock-trash" data-label="Trash" type="button">
+            <span class="tile tile-trash">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M6.5 8.5l1 11h9l1-11" />
+                <path d="M5 8.5h14" />
+                <path d="M9.5 8.5V6.8A1.3 1.3 0 0 1 10.8 5.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7" />
+                <path d="M9.2 11.5l.5 5.5M12 11.5v5.5M14.8 11.5l-.5 5.5" />
+              </svg>
+            </span>
+            <span class="dot"></span>
+          </button>
+        </nav>
+      </div>
+    </div>
+
+    <script type="module" src="/src/landing/main.ts"></script>
+  </body>
+</html>
