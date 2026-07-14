@@ -344,9 +344,9 @@ const menuButtons = Array.from(
 );
 let openMenuId: string | null = null;
 
-function populate(id: string): void {
+function populate(items: MenuItem[]): void {
   popupRows.replaceChildren();
-  for (const item of MENUS[id]) {
+  for (const item of items) {
     if (item === "sep") {
       const sep = document.createElement("div");
       sep.className = "menu-sep";
@@ -374,28 +374,9 @@ function populate(id: string): void {
   }
 }
 
-function openMenu(id: string): void {
-  const button = menuButtons.find((b) => b.dataset.menu === id);
-  if (!button) return;
-  for (const other of menuButtons) {
-    other.classList.toggle("is-open", other === button);
-    other.setAttribute("aria-expanded", String(other === button));
-  }
-  openMenuId = id;
-  populate(id);
-  popup.hidden = false;
-
-  const desktopRect = desktop.getBoundingClientRect();
-  const buttonRect = button.getBoundingClientRect();
-  const left = clamp(
-    buttonRect.left - desktopRect.left,
-    8,
-    Math.max(8, desktop.clientWidth - popup.offsetWidth - 8),
-  );
-  popup.style.left = `${left}px`;
-
-  // First open creates the lens (it needs the panel visible to measure);
-  // later opens re-measure for the new row count and re-align the refraction.
+// First open creates the lens (it needs the panel visible to measure);
+// later opens re-measure for the new row count and re-align the refraction.
+function refreshPopupLens(): void {
   if (!popupLens) {
     popupLens = createLiquidLens(popup, desktop, {
       ...BASE,
@@ -413,6 +394,51 @@ function openMenu(id: string): void {
     popupLens.update();
     popupLens.sync();
   }
+}
+
+function openMenu(id: string): void {
+  const button = menuButtons.find((b) => b.dataset.menu === id);
+  if (!button) return;
+  closeOverlays("menu");
+  for (const other of menuButtons) {
+    other.classList.toggle("is-open", other === button);
+    other.setAttribute("aria-expanded", String(other === button));
+  }
+  openMenuId = id;
+  populate(MENUS[id]);
+  popup.hidden = false;
+  popup.style.top = "";
+
+  const desktopRect = desktop.getBoundingClientRect();
+  const buttonRect = button.getBoundingClientRect();
+  const left = clamp(
+    buttonRect.left - desktopRect.left,
+    8,
+    Math.max(8, desktop.clientWidth - popup.offsetWidth - 8),
+  );
+  popup.style.left = `${left}px`;
+  refreshPopupLens();
+}
+
+/** The Finder-style right-click menu, opened at the cursor. */
+function openContextMenu(clientX: number, clientY: number): void {
+  closeOverlays("menu");
+  openMenuId = "context";
+  populate(CONTEXT_MENU);
+  popup.hidden = false;
+
+  const desktopRect = desktop.getBoundingClientRect();
+  popup.style.left = `${clamp(
+    clientX - desktopRect.left,
+    8,
+    Math.max(8, desktop.clientWidth - popup.offsetWidth - 8),
+  )}px`;
+  popup.style.top = `${clamp(
+    clientY - desktopRect.top,
+    40,
+    Math.max(40, desktop.clientHeight - popup.offsetHeight - 8),
+  )}px`;
+  refreshPopupLens();
 }
 
 function closeMenu(): void {
@@ -434,46 +460,81 @@ for (const button of menuButtons) {
       openMenu(id);
     }
   });
-  // With a menu open, gliding along the bar switches menus, macOS style.
+  // With a menu open, gliding along the bar switches menus, macOS style. A
+  // context menu doesn't arm the bar, so it doesn't participate.
   button.addEventListener("pointerenter", () => {
-    if (openMenuId !== null && openMenuId !== id) {
+    if (openMenuId !== null && openMenuId !== "context" && openMenuId !== id) {
       openMenu(id);
     }
   });
 }
 
+desktop.addEventListener("contextmenu", (event) => {
+  // Only the wallpaper gets the Finder menu; UI keeps the browser's own.
+  if (event.target !== desktop) return;
+  event.preventDefault();
+  openContextMenu(event.clientX, event.clientY);
+});
+
 document.addEventListener("pointerdown", (event) => {
-  const target = event.target as Node;
-  if (openMenuId !== null && !popup.contains(target) && !(target as HTMLElement).closest?.(".mb-item")) {
+  const target = event.target as HTMLElement;
+  if (openMenuId !== null && !popup.contains(target) && !target.closest?.(".mb-item")) {
     closeMenu();
+  }
+  if (!ccEl.hidden && !ccEl.contains(target) && !target.closest?.("#mb-cc")) {
+    closeControlCenter();
+  }
+  if (!spotlightEl.hidden && !spotlightEl.contains(target) && !target.closest?.("#mb-search")) {
+    closeSpotlight();
   }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    closeMenu();
+    closeOverlays();
+  }
+  // The web's command-palette chord opens Spotlight.
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    if (spotlightEl.hidden) {
+      openSpotlight();
+    } else {
+      closeSpotlight();
+    }
   }
 });
+
+/** Closes every transient surface except the one being opened. */
+function closeOverlays(except?: "menu" | "cc" | "spotlight"): void {
+  if (except !== "menu") closeMenu();
+  if (except !== "cc") closeControlCenter();
+  if (except !== "spotlight") closeSpotlight();
+}
 
 // ---------------------------------------------------------------------------
 // Desktop icons: click selects, click again (or double-click) opens. Clicking
 // the wallpaper clears the selection, like the Finder.
 
+const deskIconsEl = document.getElementById("desk-icons") as HTMLElement;
 const deskIcons = Array.from(document.querySelectorAll<HTMLButtonElement>(".desk-icon"));
 
-for (const icon of deskIcons) {
+function wireDeskIcon(icon: HTMLButtonElement): void {
   icon.addEventListener("click", (event) => {
     event.stopPropagation();
     if (icon.classList.contains("is-selected")) {
-      go(icon.dataset.href!);
+      if (icon.dataset.href) go(icon.dataset.href);
       return;
     }
     for (const other of deskIcons) {
       other.classList.toggle("is-selected", other === icon);
     }
   });
-  icon.addEventListener("dblclick", () => go(icon.dataset.href!));
+  icon.addEventListener("dblclick", () => {
+    if (icon.dataset.href) go(icon.dataset.href);
+  });
 }
+
+deskIcons.forEach(wireDeskIcon);
 
 desktop.addEventListener("pointerdown", (event) => {
   if (event.target === desktop) {
@@ -483,94 +544,243 @@ desktop.addEventListener("pointerdown", (event) => {
   }
 });
 
+// "New Folder" mints a real desktop icon: selectable like the others, and
+// named the way the Finder names them.
+const FOLDER_SVG =
+  '<svg viewBox="0 0 52 52"><path d="M6 14a4 4 0 0 1 4-4h10.5l4 4.5H42a4 4 0 0 1 4 4V38a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4z" fill="#4ba1ec"/><path d="M6 19h40v19a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4z" fill="#6db9f8"/></svg>';
+let folderCount = 0;
+
+function createFolder(): void {
+  folderCount++;
+  const name = folderCount === 1 ? "untitled folder" : `untitled folder ${folderCount}`;
+  const icon = document.createElement("button");
+  icon.type = "button";
+  icon.className = "desk-icon";
+  icon.innerHTML = `<span class="di-icon di-folder" aria-hidden="true">${FOLDER_SVG}</span><span class="di-label"></span>`;
+  (icon.querySelector(".di-label") as HTMLElement).textContent = name;
+  deskIconsEl.append(icon);
+  deskIcons.push(icon);
+  wireDeskIcon(icon);
+}
+
+const CONTEXT_MENU: MenuItem[] = [
+  { label: "New Folder", action: createFolder },
+  "sep",
+  { label: "Get Info", hint: "⌘I", action: showWindow },
+  "sep",
+  { label: "Change Desktop Background…", action: () => go("/panel/") },
+  { label: "Open the Panel", hint: "⌘P", action: () => go("/panel/") },
+];
+
 // ---------------------------------------------------------------------------
-// Dock magnification. macOS's feel comes from three things this reproduces:
-// the scale follows the cursor continuously (no eased jumps, so no CSS
-// transition; a per-frame lerp smooths it instead), neighbors are displaced
-// sideways so tiles never overlap, and everything relaxes when the pointer
-// leaves. Base geometry is read from layout (transforms don't disturb it).
+// Control Center: Wi-Fi and Bluetooth chips hold state, the Display slider
+// really dims the screen (through the veil), Sound is along for the ride.
 
-const MAG_SCALE = 0.42; // extra size on the tile under the cursor
-const MAG_REACH = 58; // gaussian falloff radius, px
-const MAG_SMOOTH = 18; // lerp rate, 1/s
+const ccEl = document.getElementById("control-center") as HTMLElement;
+const ccButton = document.getElementById("mb-cc") as HTMLButtonElement;
+const veil = document.getElementById("brightness-veil") as HTMLElement;
+let ccLens: LiquidLens | undefined;
 
-const dockItems = Array.from(dock.querySelectorAll<HTMLElement>(".dock-item"));
-const dockBase = dockItems[0].offsetWidth;
-const scales = new Map<HTMLElement, number>(dockItems.map((i) => [i, 1]));
-
-// The cursor is tracked in viewport coordinates and re-projected onto the
-// row every frame: the row's left edge shifts as it widens, so a position
-// cached at pointermove time would drift between events.
-let dockClientX: number | null = null;
-let dockRafId: number | undefined;
-let dockLastTime = 0;
-
-function stepDock(now: number): void {
-  const dt = Math.min((now - dockLastTime) / 1000, 1 / 30);
-  dockLastTime = now;
-  const blend = Math.min(1, MAG_SMOOTH * dt);
-  const dockMouseX =
-    dockClientX === null ? null : dockClientX - dock.getBoundingClientRect().left;
-  let settled = true;
-
-  // Distance is measured against each tile's live center, so the field
-  // stays attached to the tiles as the row reflows under the cursor.
-  for (const item of dockItems) {
-    const center = item.offsetLeft + item.offsetWidth / 2;
-    let target = 1;
-    if (dockMouseX !== null) {
-      const d = dockMouseX - center;
-      target = 1 + MAG_SCALE * Math.exp(-(d * d) / (2 * MAG_REACH * MAG_REACH));
-    }
-    const current = scales.get(item)!;
-    const next = current + (target - current) * blend;
-    scales.set(item, next);
-    if (Math.abs(next - target) > 0.002) settled = false;
-  }
-
-  for (const item of dockItems) {
-    const size = dockBase * scales.get(item)!;
-    item.style.width = `${size}px`;
-    item.style.height = `${size}px`;
-  }
-
-  // The wrapper keeps the widened row centered; the glass slab stretches to
-  // match it.
-  dockBg.style.transform = `translateX(-50%) scaleX(${dock.offsetWidth / dockRestWidth})`;
-
-  if (dockMouseX !== null || !settled) {
-    dockRafId = requestAnimationFrame(stepDock);
+function openControlCenter(): void {
+  closeOverlays("cc");
+  ccEl.hidden = false;
+  ccButton.classList.add("is-open");
+  ccButton.setAttribute("aria-expanded", "true");
+  if (!ccLens) {
+    ccLens = createLiquidLens(ccEl, desktop, {
+      ...BASE,
+      ...GLASS_TINT,
+      borderRadius: 16,
+      depth: 10,
+      curvature: 0.35,
+      splay: 0.5,
+      aberration: 0,
+      blur: 3,
+      saturation: 1.4,
+      specular: 0.7,
+    });
   } else {
-    for (const item of dockItems) {
-      item.style.width = "";
-      item.style.height = "";
-    }
-    dockBg.style.transform = "translateX(-50%)";
-    dockRafId = undefined;
+    ccLens.sync();
   }
 }
 
-function wakeDock(): void {
-  if (dockRafId === undefined) {
-    dockLastTime = performance.now();
-    dockRafId = requestAnimationFrame(stepDock);
+function closeControlCenter(): void {
+  if (ccEl.hidden) return;
+  ccEl.hidden = true;
+  ccButton.classList.remove("is-open");
+  ccButton.setAttribute("aria-expanded", "false");
+}
+
+ccButton.addEventListener("click", () => {
+  if (ccEl.hidden) {
+    openControlCenter();
+  } else {
+    closeControlCenter();
+  }
+});
+
+function wireChip(chipId: string, stateId: string): void {
+  const chip = document.getElementById(chipId) as HTMLButtonElement;
+  const state = document.getElementById(stateId) as HTMLElement;
+  chip.addEventListener("click", () => {
+    const on = chip.classList.toggle("is-on");
+    state.textContent = on ? "On" : "Off";
+  });
+}
+
+wireChip("cc-wifi", "cc-wifi-state");
+wireChip("cc-bt", "cc-bt-state");
+
+function wireCcSlider(id: string, onInput?: (value: number) => void): void {
+  const slider = document.getElementById(id) as HTMLInputElement;
+  const refresh = (): void => {
+    const min = Number(slider.min);
+    const max = Number(slider.max);
+    const value = Number(slider.value);
+    slider.style.setProperty("--p", `${((value - min) / (max - min)) * 100}%`);
+    onInput?.(value);
+  };
+  slider.addEventListener("input", refresh);
+  refresh();
+}
+
+wireCcSlider("cc-brightness", (value) => {
+  // 100 → clear screen; the floor (30) leaves everything readable.
+  veil.style.opacity = String(((100 - value) / 100) * 0.62);
+});
+wireCcSlider("cc-sound");
+
+// ---------------------------------------------------------------------------
+// Spotlight: a command palette over glass. ⌘K / Ctrl+K or the magnifier.
+
+type SpotlightAction = { label: string; sub: string; run: () => void };
+
+const SPOTLIGHT_ACTIONS: SpotlightAction[] = [
+  { label: "About liquidlens", sub: "liquidlens", run: showWindow },
+  { label: "Open the Panel", sub: "Panel.app", run: () => go("/panel/") },
+  { label: "README", sub: "Documentation", run: () => go(`${GITHUB}#readme`) },
+  { label: "GitHub", sub: "github.com", run: () => go(GITHUB) },
+  { label: "npm", sub: "npmjs.com", run: () => go(NPM) },
+  { label: "Report an Issue", sub: "GitHub Issues", run: () => go(`${GITHUB}/issues`) },
+  { label: "New Folder", sub: "Desktop", run: createFolder },
+];
+
+const spotlightEl = document.getElementById("spotlight") as HTMLElement;
+const spotlightInput = document.getElementById("spotlight-input") as HTMLInputElement;
+const spotlightResults = document.getElementById("spotlight-results") as HTMLElement;
+const searchButton = document.getElementById("mb-search") as HTMLButtonElement;
+let spotlightLens: LiquidLens | undefined;
+let spotlightMatches: SpotlightAction[] = [];
+let spotlightIndex = 0;
+let spotlightRowCount = -1;
+
+function runSpotlight(action: SpotlightAction): void {
+  closeSpotlight();
+  action.run();
+}
+
+function renderSpotlight(): void {
+  const query = spotlightInput.value.trim().toLowerCase();
+  spotlightMatches = SPOTLIGHT_ACTIONS.filter(
+    (a) => a.label.toLowerCase().includes(query) || a.sub.toLowerCase().includes(query),
+  );
+  spotlightIndex = 0;
+  spotlightResults.replaceChildren();
+
+  if (spotlightMatches.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "sp-empty";
+    empty.textContent = "No Results";
+    spotlightResults.append(empty);
+  }
+
+  spotlightMatches.forEach((action, i) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "sp-row";
+    row.classList.toggle("is-active", i === spotlightIndex);
+    const label = document.createElement("span");
+    label.textContent = action.label;
+    const sub = document.createElement("small");
+    sub.textContent = action.sub;
+    row.append(label, sub);
+    row.addEventListener("pointerenter", () => {
+      spotlightIndex = i;
+      highlightSpotlight();
+    });
+    row.addEventListener("click", () => runSpotlight(action));
+    spotlightResults.append(row);
+  });
+
+  // The panel's height follows the row count; re-measure the lens only when
+  // it actually changed so typing doesn't regenerate maps per keystroke.
+  const count = spotlightMatches.length;
+  if (count !== spotlightRowCount) {
+    spotlightRowCount = count;
+    spotlightLens?.update();
+    spotlightLens?.sync();
   }
 }
 
-dock.addEventListener("pointermove", (event) => {
-  if (!finePointer.matches || reducedMotion.matches) return;
-  dockClientX = event.clientX;
-  wakeDock();
+function highlightSpotlight(): void {
+  const rows = spotlightResults.querySelectorAll<HTMLElement>(".sp-row");
+  rows.forEach((row, i) => row.classList.toggle("is-active", i === spotlightIndex));
+}
+
+function openSpotlight(): void {
+  closeOverlays("spotlight");
+  spotlightEl.hidden = false;
+  searchButton.classList.add("is-open");
+  searchButton.setAttribute("aria-expanded", "true");
+  spotlightInput.value = "";
+  spotlightRowCount = -1;
+  renderSpotlight();
+  if (!spotlightLens) {
+    spotlightLens = createLiquidLens(spotlightEl, desktop, {
+      ...BASE,
+      ...GLASS_TINT,
+      borderRadius: 16,
+      depth: 12,
+      curvature: 0.35,
+      splay: 0.5,
+      aberration: 0,
+      blur: 3,
+      saturation: 1.4,
+      specular: 0.8,
+    });
+    spotlightRowCount = spotlightMatches.length;
+  }
+  spotlightInput.focus();
+}
+
+function closeSpotlight(): void {
+  if (spotlightEl.hidden) return;
+  spotlightEl.hidden = true;
+  searchButton.classList.remove("is-open");
+  searchButton.setAttribute("aria-expanded", "false");
+}
+
+searchButton.addEventListener("click", () => {
+  if (spotlightEl.hidden) {
+    openSpotlight();
+  } else {
+    closeSpotlight();
+  }
 });
 
-dock.addEventListener("pointerleave", () => {
-  dockClientX = null;
-  wakeDock();
+spotlightInput.addEventListener("input", renderSpotlight);
+
+spotlightInput.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (spotlightMatches.length === 0) return;
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    spotlightIndex =
+      (spotlightIndex + step + spotlightMatches.length) % spotlightMatches.length;
+    highlightSpotlight();
+  } else if (event.key === "Enter") {
+    const action = spotlightMatches[spotlightIndex];
+    if (action) runSpotlight(action);
+  }
 });
 
-const trash = document.getElementById("dock-trash") as HTMLButtonElement;
-trash.addEventListener("click", () => {
-  trash.classList.remove("shake");
-  void trash.offsetWidth;
-  trash.classList.add("shake");
-});

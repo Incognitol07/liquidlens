@@ -47,8 +47,13 @@
         box-sizing: border-box;
       }
 
+      /* The page is the MacBook's display: a black bezel wraps the desktop,
+         the display corners are rounded like the panel's, and the notch
+         hangs from the top bezel. */
       body {
         margin: 0;
+        padding: 10px;
+        background: #000;
         font-family: var(--sans);
         font-size: 13px;
         color: var(--ink);
@@ -62,9 +67,43 @@
 
       #desktop {
         position: relative;
-        height: 100dvh;
+        height: calc(100dvh - 20px);
         overflow: hidden;
+        border-radius: 18px;
         user-select: none;
+      }
+
+      /* The pane of screen glass over everything: a faint vignette and an
+         even fainter sheen. Id-scoped on purpose — physical screen effects
+         must not appear inside the lenses' backdrop clones. */
+      #desktop::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 90;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 0 46px rgba(0, 0, 0, 0.16);
+        background: linear-gradient(
+          160deg,
+          rgba(255, 255, 255, 0.045) 0%,
+          rgba(255, 255, 255, 0) 26%
+        );
+      }
+
+      @media (max-width: 900px) {
+        body {
+          padding: 0;
+        }
+
+        #desktop {
+          height: 100dvh;
+          border-radius: 0;
+        }
+
+        #desktop::after {
+          display: none;
+        }
       }
 
       /* The wallpaper is styled through a class, not the id: the lens clones
@@ -72,6 +111,18 @@
          styles would vanish inside the refraction. */
       .wallpaper {
         background: #7a8494 url("/wallpaper.jpg") center / cover no-repeat;
+      }
+
+      /* Control Center's Display slider dims the whole screen through this
+         veil; marked with data-liquidlens so it never appears in clones. */
+      #brightness-veil {
+        position: absolute;
+        inset: 0;
+        z-index: 85;
+        background: #000;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 140ms ease;
       }
 
       /* Glass frames fall back to a plain frost until liquidlens takes over. */
@@ -150,6 +201,22 @@
         align-items: center;
         height: 25px;
         padding: 0 7px;
+      }
+
+      button.mb-status {
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: inherit;
+      }
+
+      button.mb-status.is-open {
+        background: var(--hover);
+      }
+
+      button.mb-status:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
       }
 
       .mb-status svg {
@@ -255,6 +322,278 @@
       }
 
       /* ----------------------------------------------------------------- */
+      /* Control Center                                                     */
+
+      #control-center {
+        position: absolute;
+        top: 39px;
+        right: 10px;
+        z-index: 40;
+        width: 300px;
+        padding: 12px;
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        box-shadow:
+          var(--shadow-menu),
+          0 0 0 1px var(--edge),
+          0 1px 0 var(--edge-lit) inset;
+        overflow: hidden;
+      }
+
+      #control-center[hidden] {
+        display: none;
+      }
+
+      .cc-chips {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .cc-chip {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 9px;
+        border: 1px solid var(--edge);
+        border-radius: 13px;
+        background: var(--chip);
+        color: var(--ink);
+        font: inherit;
+        text-align: left;
+      }
+
+      .cc-chip:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .cc-ico {
+        flex-shrink: 0;
+        width: 27px;
+        height: 27px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(120, 120, 128, 0.32);
+        color: #fff;
+        transition: background 150ms ease;
+      }
+
+      .cc-ico svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .cc-chip.is-on .cc-ico {
+        background: var(--accent);
+      }
+
+      .cc-txt {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.25;
+        min-width: 0;
+      }
+
+      .cc-txt strong {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .cc-txt small {
+        font-size: 11px;
+        color: var(--ink-2);
+      }
+
+      .cc-group {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .cc-label {
+        font-size: 12px;
+        font-weight: 600;
+        padding-left: 2px;
+      }
+
+      /* macOS Control Center sliders: a thick capsule track whose white fill
+         carries a small icon at the left end. */
+      .cc-slider {
+        position: relative;
+      }
+
+      .cc-slider > svg {
+        position: absolute;
+        left: 7px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        color: rgba(90, 90, 100, 0.85);
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .cc-slider input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        display: block;
+        width: 100%;
+        height: 24px;
+        margin: 0;
+        border-radius: 12px;
+        background: linear-gradient(
+          to right,
+          #fff var(--p, 100%),
+          rgba(255, 255, 255, 0.35) var(--p, 100%)
+        );
+        box-shadow: inset 0 0 0 1px var(--edge);
+        cursor: default;
+      }
+
+      .cc-slider input[type="range"]:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .cc-slider input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow:
+          0 1px 4px rgba(0, 0, 0, 0.25),
+          0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      }
+
+      .cc-slider input[type="range"]::-moz-range-thumb {
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow:
+          0 1px 4px rgba(0, 0, 0, 0.25),
+          0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      }
+
+      /* ----------------------------------------------------------------- */
+      /* Spotlight                                                          */
+
+      #spotlight {
+        position: absolute;
+        top: 17%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 50;
+        width: min(560px, 92vw);
+        border-radius: 16px;
+        box-shadow:
+          var(--shadow-win),
+          0 0 0 1px var(--edge),
+          0 1px 0 var(--edge-lit) inset;
+        overflow: hidden;
+      }
+
+      #spotlight[hidden] {
+        display: none;
+      }
+
+      .sp-field {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 12px 15px;
+      }
+
+      .sp-field > svg {
+        flex-shrink: 0;
+        width: 21px;
+        height: 21px;
+        color: var(--ink-2);
+      }
+
+      .sp-field input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 21px;
+        font-weight: 300;
+      }
+
+      .sp-field input::placeholder {
+        color: var(--ink-2);
+      }
+
+      .sp-results {
+        position: relative;
+        z-index: 1;
+        border-top: 1px solid var(--edge);
+        padding: 5px;
+        max-height: 250px;
+        overflow-y: auto;
+      }
+
+      .sp-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 7px 9px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        text-align: left;
+      }
+
+      .sp-row svg {
+        flex-shrink: 0;
+        width: 17px;
+        height: 17px;
+        color: var(--ink-2);
+      }
+
+      .sp-row small {
+        margin-left: auto;
+        font-size: 11.5px;
+        color: var(--ink-2);
+      }
+
+      .sp-row.is-active {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .sp-row.is-active svg,
+      .sp-row.is-active small {
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .sp-empty {
+        padding: 10px;
+        text-align: center;
+        color: var(--ink-2);
+      }
+
+      /* ----------------------------------------------------------------- */
       /* Desktop icons                                                      */
 
       /* Class-styled (not by id) so the icons keep their layout inside the
@@ -324,6 +663,18 @@
         box-shadow:
           0 6px 16px rgba(0, 0, 0, 0.25),
           0 0 0 3px rgba(255, 255, 255, 0.35);
+      }
+
+      /* Folders are bare glyphs, not tiles, like the Finder's. */
+      .di-folder {
+        background: none;
+        box-shadow: none;
+      }
+
+      .di-folder svg {
+        width: 52px;
+        height: 52px;
+        filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
       }
 
       /* The document icon is a white page, not a tile. */
@@ -889,6 +1240,20 @@
               <path d="M20 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor" stroke="none" />
             </svg>
           </span>
+          <button class="mb-status" id="mb-search" type="button" aria-label="Spotlight" aria-haspopup="dialog" aria-expanded="false">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <circle cx="7" cy="7" r="4.4" />
+              <path d="M10.4 10.4L14 14" />
+            </svg>
+          </button>
+          <button class="mb-status" id="mb-cc" type="button" aria-label="Control Center" aria-haspopup="dialog" aria-expanded="false">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <rect x="1.5" y="2.5" width="13" height="4.6" rx="2.3" />
+              <circle cx="4.2" cy="4.8" r="1.5" fill="currentColor" stroke="none" />
+              <rect x="1.5" y="8.9" width="13" height="4.6" rx="2.3" />
+              <circle cx="11.8" cy="11.2" r="1.5" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
           <span id="clock" aria-hidden="true"></span>
         </div>
       </header>
@@ -897,6 +1262,61 @@
         <div id="menu-rows"></div>
       </div>
 
+      <div id="control-center" class="glass" data-liquidlens role="dialog" aria-label="Control Center" hidden>
+        <div class="cc-chips">
+          <button class="cc-chip is-on" id="cc-wifi" type="button">
+            <span class="cc-ico">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <path d="M2.2 6.4a8.4 8.4 0 0 1 11.6 0" />
+                <path d="M4.4 8.8a5.2 5.2 0 0 1 7.2 0" />
+                <circle cx="8" cy="11.8" r="1" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            <span class="cc-txt"><strong>Wi-Fi</strong><small id="cc-wifi-state">On</small></span>
+          </button>
+          <button class="cc-chip is-on" id="cc-bt" type="button">
+            <span class="cc-ico">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 1.5v13l3.5-3L4.5 5M11.5 4.5L8 8l-3.5 3" />
+              </svg>
+            </span>
+            <span class="cc-txt"><strong>Bluetooth</strong><small id="cc-bt-state">On</small></span>
+          </button>
+        </div>
+        <div class="cc-group">
+          <div class="cc-label">Display</div>
+          <div class="cc-slider">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 2.2v1.2M8 12.6v1.2M2.2 8h1.2M12.6 8h1.2M4 4l.9.9M11.1 11.1l.9.9M4 12l.9-.9M11.1 4.9l.9-.9" />
+            </svg>
+            <input id="cc-brightness" type="range" min="30" max="100" step="1" value="100" aria-label="Display brightness" />
+          </div>
+        </div>
+        <div class="cc-group">
+          <div class="cc-label">Sound</div>
+          <div class="cc-slider">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 6v4h2.5L8.5 13V3L5 6z" fill="currentColor" stroke="none" />
+              <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" />
+            </svg>
+            <input id="cc-sound" type="range" min="0" max="100" step="1" value="65" aria-label="Sound volume" />
+          </div>
+        </div>
+      </div>
+
+      <div id="spotlight" class="glass" data-liquidlens role="dialog" aria-label="Spotlight" hidden>
+        <div class="sp-field">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <circle cx="7" cy="7" r="4.4" />
+            <path d="M10.4 10.4L14 14" />
+          </svg>
+          <input id="spotlight-input" type="text" placeholder="Spotlight Search" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="sp-results" id="spotlight-results"></div>
+      </div>
+
+      <div id="brightness-veil" data-liquidlens aria-hidden="true"></div>
       <div id="desk-icons" class="desk-icons">
         <button class="desk-icon" data-href="/panel/" type="button">
           <span class="di-icon di-panel">
