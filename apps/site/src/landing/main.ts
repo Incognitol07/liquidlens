@@ -1,7 +1,6 @@
 import {
   createLensFollower,
   createLiquidLens,
-  performanceTier,
   type LensFollower,
   type LiquidLens,
   type LiquidLensOptions,
@@ -11,7 +10,6 @@ import {
 // visit still reads; the flag flips them to transparent for the real thing.
 document.documentElement.classList.add("js");
 
-const lowTier = performanceTier() === "low";
 const finePointer = matchMedia("(pointer: fine)");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -155,10 +153,6 @@ titlebar.addEventListener("pointerdown", (event) => {
   dragging = true;
   windowMoved = true;
   windowLens?.setIntensity(1.3);
-  if (lowTier) {
-    // A drag re-rasters the filter every frame; shed the costly passes.
-    windowLens?.update({ aberration: 0, blur: 0 });
-  }
 
   const grabX = event.clientX - windowFollow.x;
   const grabY = event.clientY - windowFollow.y;
@@ -176,9 +170,6 @@ titlebar.addEventListener("pointerdown", (event) => {
     titlebar.releasePointerCapture(upEvent.pointerId);
     dragging = false;
     windowLens?.setIntensity(1);
-    if (lowTier) {
-      windowLens?.update(WINDOW_OPTICS);
-    }
     titlebar.removeEventListener("pointermove", onMove);
     titlebar.removeEventListener("pointerup", onUp);
     titlebar.removeEventListener("pointercancel", onUp);

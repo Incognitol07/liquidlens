@@ -5,7 +5,6 @@ import {
   createLensMorph,
   createLiquidLens,
   inkColor,
-  performanceTier,
   presets,
   renderDisplacementMapToCanvas,
   renderSpecularToCanvas,
@@ -24,7 +23,6 @@ import {
 // On devices without the CPU headroom for the full pipeline, interactions
 // temporarily drop the passes that dominate filter cost (the per-channel
 // aberration split and the Gaussian blur) and restore them on settle.
-const lowTier = performanceTier() === "low";
 
 // ---------------------------------------------------------------------------
 // Mobile panel toggle
@@ -241,9 +239,8 @@ new ResizeObserver(() => {
 //
 // Position, press, and geometry all run through springs. Moving the lens is
 // transform-only (no map work), but a geometry morph is a real shape change,
-// so the displacement and specular maps regenerate every frame at reduced
-// resolution while the size springs are in motion, with one crisp full-
-// resolution pass once everything settles.
+// so the displacement and specular maps regenerate every frame at full
+// quality while the size springs are in motion.
 
 // The orb's drag offset from the backdrop center, set by the pointer. The
 // package follower (created at init) springs the frame to (center + offset),
@@ -543,12 +540,6 @@ lensEl.addEventListener("pointerdown", (event) => {
   // lens; the follower's loop drives the orb's motion, so no debug wake here.
   orbFollow?.press(1);
   lens?.setIntensity(1.9);
-  if (lowTier) {
-    // Every frame of the drag re-rasters the whole filter, so shed the
-    // expensive passes for its duration; aberration is invisible on a moving
-    // lens anyway. Restored on release.
-    lens?.update({ aberration: 0, blur: 0 });
-  }
 
   // Grab offset against the follower's live position, so picking the orb up
   // mid-wobble doesn't make it jump.
@@ -570,9 +561,6 @@ lensEl.addEventListener("pointerdown", (event) => {
     dragging = false;
     orbFollow?.press(0);
     lens?.setIntensity(1);
-    if (lowTier) {
-      lens?.update(currentOptions());
-    }
     lensEl.removeEventListener("pointermove", onMove);
     lensEl.removeEventListener("pointerup", onUp);
     lensEl.removeEventListener("pointercancel", onUp);
@@ -749,7 +737,7 @@ orbMorph = createLensMorph(lensEl, lens, {
       const c = orbTarget();
       orbFollow?.set(c.x, c.y);
     }
-    refreshPreviews(f.settled ? 1 : 0.5);
+    refreshPreviews();
   },
 });
 refreshExport();

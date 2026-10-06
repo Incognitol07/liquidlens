@@ -1,6 +1,5 @@
 import {
   createLiquidLens,
-  performanceTier,
   presets,
   Spring,
   type LensPresetName,
@@ -9,7 +8,6 @@ import {
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
   type LensEngine,
-  type PerformanceTier,
 } from "@liquidlens/core";
 import {
   forwardRef,
@@ -32,9 +30,8 @@ export type {
   LensPresetName,
   LensShape,
   LensShapeName,
-  PerformanceTier,
 };
-export { presets, performanceTier, Spring };
+export { presets, Spring };
 
 // The adaptive surface is framework-agnostic and lives entirely in core; the
 // `adaptive` lens option (below) covers the common case, and these re-exports

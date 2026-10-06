@@ -6,10 +6,6 @@ import type { LiquidLens } from "./lens";
 // reads best with a little lead-and-settle, not a long wobble.
 const DEFAULT_MORPH_STIFFNESS = 170;
 const DEFAULT_MORPH_DAMPING = 16;
-// Samples per CSS px while the springs are in motion. The map is regenerated
-// every frame during a morph, so halving resolution roughly quarters that
-// cost; one crisp full-resolution pass runs once the morph settles.
-const DEFAULT_MORPH_RESOLUTION = 0.5;
 
 export interface MorphState {
   width?: number;
@@ -23,15 +19,13 @@ export interface MorphFrame {
   borderRadius: number;
   /** Combined speed of the size springs (px/s); handy for a morph-speed swell. */
   speed: number;
-  /** True on the final, full-resolution frame once the morph has settled. */
+  /** True on the final frame, once the morph has settled. */
   settled: boolean;
 }
 
 export interface LensMorphOptions extends SpringConfig {
   /** Starting size/shape; defaults to the frame's measured size and computed radius. */
   initial?: MorphState;
-  /** Samples per CSS px while morphing (default 0.5); a crisp full-res pass runs on settle. */
-  resolution?: number;
   /**
    * Per-axis spring overrides. Each axis falls back to the top-level
    * `stiffness`/`damping`. Distinct per-axis springs are what give a liquid
@@ -73,9 +67,8 @@ export interface LensMorph {
  * the refraction as it goes. Like {@link createLensFollower} is the liquid
  * layer for a lens's position, this is the liquid layer for its size: it
  * springs `width`/`height`/`borderRadius`, writes them to the frame, and calls
- * `lens.update()` each frame — at a reduced resolution while moving, then one
- * crisp full-resolution pass on settle, which is the cheap way to morph a lens
- * smoothly without paying full map-generation cost every frame.
+ * `lens.update()` each frame at full quality, so the glass keeps its
+ * character throughout the morph.
  *
  * It owns the frame's `width`/`height`/`borderRadius`. Pair `onFrame` with the
  * morph to keep content or intensity in lockstep with the size.
@@ -93,7 +86,6 @@ export function createLensMorph(
   options: LensMorphOptions = {},
 ): LensMorph {
   const win = frame.ownerDocument.defaultView;
-  const resolution = options.resolution ?? DEFAULT_MORPH_RESOLUTION;
   const onFrame = options.onFrame;
 
   const stiffnessFor = (axis: keyof NonNullable<LensMorphOptions["springs"]>): number =>
@@ -125,8 +117,8 @@ export function createLensMorph(
   // The lens reads the frame's clientWidth/Height for its geometry (set just
   // above) and takes borderRadius explicitly; merging keeps the optical
   // options the lens already had.
-  const applyLens = (res: number | undefined): void => {
-    lens.update({ borderRadius: springR.value }, res);
+  const applyLens = (): void => {
+    lens.update({ borderRadius: springR.value });
   };
 
   const emit = (settled: boolean): void => {
@@ -153,7 +145,7 @@ export function createLensMorph(
     }
     const settled = springW.settled && springH.settled && springR.settled;
     writeSize();
-    applyLens(settled ? undefined : resolution);
+    applyLens();
     emit(settled);
     if (win && !settled) {
       rafId = win.requestAnimationFrame(tick);
@@ -170,7 +162,7 @@ export function createLensMorph(
 
   // Match the frame to the initial size right away (crisp).
   writeSize();
-  applyLens(undefined);
+  applyLens();
   emit(true);
 
   return {
@@ -197,7 +189,7 @@ export function createLensMorph(
         springR.velocity = 0;
       }
       writeSize();
-      applyLens(undefined);
+      applyLens();
       emit(true);
     },
     get width() {

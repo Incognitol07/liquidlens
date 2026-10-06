@@ -9,7 +9,6 @@ import { gpuMediaFor, type LensEngine } from "./engine";
 import { createGpuRenderer, shaderShape } from "./gpu-renderer";
 import { webglAvailable, webglEngine } from "./gpu/webgl";
 import { webgpuAvailable, webgpuEngine } from "./gpu/webgpu";
-import { performanceTier } from "./tier";
 
 
 export interface LiquidLensOptions {
@@ -214,15 +213,10 @@ type ResolvedOptions = Required<
   >
 >;
 
-/**
- * Defaults adapt to the device: the full preset where there is CPU headroom
- * for it, the lean preset on devices that rasterize the filter pipeline too
- * slowly for the full look (see `performanceTier`). Explicit options always
- * win, so callers who want one look everywhere pass a preset themselves.
- */
-function defaultsFor(win: (Window & typeof globalThis) | null): ResolvedOptions {
+/** The full look on every device; explicit options always win. */
+function defaults(): ResolvedOptions {
   return {
-    ...presets[performanceTier(win) === "low" ? "lean" : "full"],
+    ...presets.full,
     respectReducedMotion: true,
     reducedTransparency: "auto",
     increasedContrast: "auto",
@@ -354,7 +348,7 @@ export function createLiquidLens(
 
   const doc = frame.ownerDocument;
   let settings: LiquidLensOptions & ResolvedOptions = {
-    ...defaultsFor(doc.defaultView),
+    ...defaults(),
     ...options,
   };
 

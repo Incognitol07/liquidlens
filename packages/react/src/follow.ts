@@ -167,9 +167,9 @@ export interface ReactLensMorph {
 
 /**
  * React wrapper around the core {@link createLensMorph}: springs a lens
- * frame's size and corner radius, regenerating the refraction at reduced
- * resolution while moving and once crisply on settle. The liquid layer for a
- * lens's *size*, as `useLensFollow` is for its position.
+ * frame's size and corner radius, regenerating the refraction at full
+ * quality every frame. The liquid layer for a lens's *size*, as
+ * `useLensFollow` is for its position.
  *
  * `stiffness`/`damping` update the live springs; `onFrame` always uses the
  * latest callback without recreating the morph.
