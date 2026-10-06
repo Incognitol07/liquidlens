@@ -540,6 +540,70 @@ export function createLiquidLens(
   }
   mirrorAllScrolls();
 
+  // Script animations re-created on the current clone, cancelled with it.
+  let mirroredAnimations: Animation[] = [];
+
+  /**
+   * Locks the clone's animations to the backdrop's. A cloned element's CSS
+   * animations start from their first keyframe when the clone is inserted,
+   * and script (Web Animations) animations are not cloned at all, so either
+   * would run out of step with the content the lens sits over. Each
+   * counterpart (re-created for script animations) takes its source's start
+   * time on the same timeline, which keeps the two in step from then on.
+   * In-flight CSS transitions are left alone: the clone shows their end state.
+   */
+  function syncCloneAnimations(): void {
+    for (const mirrored of mirroredAnimations) {
+      mirrored.cancel();
+    }
+    mirroredAnimations = [];
+    for (const source of backdrop.getAnimations({ subtree: true })) {
+      const effect = source.effect;
+      if (!(effect instanceof KeyframeEffect) || !effect.target || source instanceof CSSTransition) {
+        continue;
+      }
+      const target = findCloneCounterpart(effect.target);
+      if (!target) {
+        continue;
+      }
+
+      let counterpart: Animation | undefined;
+      if (source instanceof CSSAnimation) {
+        counterpart = target.getAnimations({ subtree: true }).find(
+          (a) =>
+            a instanceof CSSAnimation &&
+            a.animationName === source.animationName &&
+            a.effect instanceof KeyframeEffect &&
+            a.effect.target === target &&
+            a.effect.pseudoElement === effect.pseudoElement,
+        );
+      } else if (source.timeline) {
+        counterpart = new Animation(
+          new KeyframeEffect(target, effect.getKeyframes(), {
+            ...effect.getTiming(),
+            composite: effect.composite,
+            pseudoElement: effect.pseudoElement,
+          }),
+          source.timeline,
+        );
+        mirroredAnimations.push(counterpart);
+      }
+      if (!counterpart) {
+        continue;
+      }
+
+      counterpart.playbackRate = source.playbackRate;
+      if (source.startTime !== null) {
+        counterpart.startTime = source.startTime;
+      } else {
+        // Paused (or idle): hold the same frame.
+        counterpart.currentTime = source.currentTime;
+        counterpart.pause();
+      }
+    }
+  }
+  syncCloneAnimations();
+
   // Content tracking: the clone is a snapshot, so backdrop mutations would
   // otherwise refract stale pixels until the lens is recreated. Rather than
   // replaying individual mutation records (fragile ordering, moved nodes),
@@ -568,11 +632,13 @@ export function createLiquidLens(
     const next = cloneBackdrop(backdrop);
     clone.replaceWith(next);
     clone = next;
-    // The new clone carries no transform or scroll state; re-derive both.
+    // The new clone carries no transform, scroll or animation state;
+    // re-derive all three.
     syncedX = Number.NaN;
     syncedY = Number.NaN;
     sync();
     mirrorAllScrolls();
+    syncCloneAnimations();
     // The backdrop content changed — and with it possibly the image the probe
     // samples (e.g. a swapped background) — so drop the cached source.
     adaptive?.invalidate();
@@ -858,6 +924,8 @@ export function createLiquidLens(
       adaptive = undefined;
       contrastRing?.remove();
       contrastRing = undefined;
+      mirroredAnimations.forEach((animation) => animation.cancel());
+      mirroredAnimations = [];
       refraction.remove();
       tintLayer.remove();
       shineLayer.remove();
