@@ -22,6 +22,67 @@ function inlineComputedStyle(source: Element, target: HTMLElement): void {
 }
 
 /**
+ * Whether `el` is inside a lens frame that is itself inside `backdrop` (and
+ * so absent from clones). The nearest marked ancestor decides: one outside
+ * the backdrop means the backdrop sits in a lens, and `el` is kept.
+ */
+function insideLensFrame(el: Element, backdrop: HTMLElement): boolean {
+  const frame = el.closest(`[${LENS_MARKER}]`);
+  return frame !== null && backdrop.contains(frame);
+}
+
+/** One capture stream per source canvas, shared by every clone showing it. */
+const canvasStreams = new WeakMap<HTMLCanvasElement, MediaStream | null>();
+
+function canvasStream(canvas: HTMLCanvasElement): MediaStream | null {
+  let stream = canvasStreams.get(canvas);
+  if (stream === undefined) {
+    try {
+      stream = canvas.captureStream();
+    } catch {
+      // A cross-origin-tainted canvas refuses capture.
+      stream = null;
+    }
+    canvasStreams.set(canvas, stream);
+  }
+  return stream;
+}
+
+/**
+ * Makes the clone's canvases live. A cloned canvas is blank (its bitmap is
+ * not part of the DOM), so each is replaced by a video playing a capture
+ * stream of the source canvas: GPU-backed, and updated as the source draws.
+ * The video takes the source canvas's computed style inline (rules written
+ * for `canvas` don't match it) and stretches its frames over the box the way
+ * a canvas stretches its bitmap.
+ */
+function mirrorCanvases(backdrop: HTMLElement, clone: HTMLElement): void {
+  const copies = clone.querySelectorAll("canvas");
+  if (copies.length === 0) {
+    return;
+  }
+  const sources = [...backdrop.querySelectorAll("canvas")].filter(
+    (canvas) => !insideLensFrame(canvas, backdrop),
+  );
+  const doc = backdrop.ownerDocument;
+  copies.forEach((copy, i) => {
+    const source = sources[i];
+    const stream = source && canvasStream(source);
+    if (!stream) {
+      return;
+    }
+    const video = doc.createElement("video");
+    inlineComputedStyle(source, video);
+    video.style.objectFit = "fill";
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    copy.replaceWith(video);
+  });
+}
+
+/**
  * Builds a static copy of `backdrop` for a lens to refract: id-dependent
  * styling baked in, ids stripped, lens frames removed, sized and positioned
  * to overlay the original from the lens's top-left corner.
@@ -37,17 +98,13 @@ function buildBackdropClone(backdrop: HTMLElement): HTMLElement {
   }
   // Lens frames are removed from the clone below, so styling anything
   // inside one is wasted work, and with ~500 computed properties per
-  // element it dominates the build. The nearest marked ancestor decides:
-  // one inside the backdrop is a frame that will be removed, while one
-  // outside it (the backdrop sits in a lens) is kept.
+  // element it dominates the build.
   const sourceIdElements = backdrop.querySelectorAll("[id]");
   built.querySelectorAll("[id]").forEach((el, i) => {
     const source = sourceIdElements[i];
-    const frameAncestor = source.closest(`[${LENS_MARKER}]`);
-    if (frameAncestor && backdrop.contains(frameAncestor)) {
-      return;
+    if (!insideLensFrame(source, backdrop)) {
+      inlineComputedStyle(source, el as HTMLElement);
     }
-    inlineComputedStyle(source, el as HTMLElement);
   });
   built.removeAttribute("id");
   built.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
@@ -77,13 +134,21 @@ function buildBackdropClone(backdrop: HTMLElement): HTMLElement {
  */
 let passTemplate: { backdrop: HTMLElement; clone?: HTMLElement } | undefined;
 
-/** A fresh copy of `backdrop` for a lens to refract (see buildBackdropClone). */
+/**
+ * A fresh copy of `backdrop` for a lens to refract (see buildBackdropClone),
+ * with its canvases made live (see mirrorCanvases). Each copy gets its own
+ * videos: a stream attached to a template would not survive cloneNode.
+ */
 export function cloneBackdrop(backdrop: HTMLElement): HTMLElement {
+  let copy: HTMLElement;
   if (passTemplate?.backdrop !== backdrop) {
-    return buildBackdropClone(backdrop);
+    copy = buildBackdropClone(backdrop);
+  } else {
+    passTemplate.clone ??= buildBackdropClone(backdrop);
+    copy = passTemplate.clone.cloneNode(true) as HTMLElement;
   }
-  passTemplate.clone ??= buildBackdropClone(backdrop);
-  return passTemplate.clone.cloneNode(true) as HTMLElement;
+  mirrorCanvases(backdrop, copy);
+  return copy;
 }
 
 interface BackdropWatch {
