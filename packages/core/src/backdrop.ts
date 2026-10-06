@@ -212,6 +212,9 @@ export function cloneBackdrop(backdrop: HTMLElement): HTMLElement {
 
 interface BackdropWatch {
   observer: MutationObserver;
+  ancestorObserver: MutationObserver;
+  scheme?: MediaQueryList;
+  onScheme: () => void;
   listeners: Set<() => void>;
   queued: boolean;
 }
@@ -219,10 +222,13 @@ interface BackdropWatch {
 const watches = new WeakMap<HTMLElement, BackdropWatch>();
 
 /**
- * Calls `onChange` (coalesced to once per frame) whenever the backdrop's
- * content changes outside any lens frame. All lenses on one backdrop share a
- * single observer and a single per-frame pass, during which `cloneBackdrop`
- * builds the copy once. Returns the unsubscribe function.
+ * Calls `onChange` (coalesced to once per frame) whenever what the backdrop
+ * paints may have changed: its content changed outside any lens frame, an
+ * ancestor's `style` or `class` changed (a CSS variable or a theme class set
+ * higher up, which the backdrop's computed style follows), or the color
+ * scheme flipped. All lenses on one backdrop share these observers and a
+ * single per-frame pass, during which `cloneBackdrop` builds the copy once.
+ * Returns the unsubscribe function.
  */
 export function watchBackdrop(backdrop: HTMLElement, onChange: () => void): () => void {
   if (typeof MutationObserver === "undefined") {
@@ -230,9 +236,13 @@ export function watchBackdrop(backdrop: HTMLElement, onChange: () => void): () =
   }
   let watch = watches.get(backdrop);
   if (!watch) {
+    const win = backdrop.ownerDocument.defaultView;
     const created: BackdropWatch = {
       listeners: new Set(),
       queued: false,
+      ancestorObserver: new MutationObserver(() => schedule(backdrop, created)),
+      scheme: win?.matchMedia?.("(prefers-color-scheme: dark)"),
+      onScheme: () => schedule(backdrop, created),
       // Mutations inside any lens frame are ignored: the lenses' own
       // bookkeeping (clone transforms, scroll mirroring, the rebuild itself)
       // mutates the tree constantly and must not retrigger the observer.
@@ -253,6 +263,10 @@ export function watchBackdrop(backdrop: HTMLElement, onChange: () => void): () =
       attributes: true,
       characterData: true,
     });
+    for (let el = backdrop.parentElement; el; el = el.parentElement) {
+      created.ancestorObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+    }
+    created.scheme?.addEventListener?.("change", created.onScheme);
     watches.set(backdrop, created);
     watch = created;
   }
@@ -262,6 +276,8 @@ export function watchBackdrop(backdrop: HTMLElement, onChange: () => void): () =
     active.listeners.delete(onChange);
     if (active.listeners.size === 0) {
       active.observer.disconnect();
+      active.ancestorObserver.disconnect();
+      active.scheme?.removeEventListener?.("change", active.onScheme);
       if (watches.get(backdrop) === active) {
         watches.delete(backdrop);
       }

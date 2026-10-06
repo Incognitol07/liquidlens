@@ -7,6 +7,7 @@ import { resolveShape, type LensShape, type LensShapeName } from "./shape";
 import { createSvgRenderer } from "./svg-renderer";
 import { gpuMediaFor, type LensEngine } from "./engine";
 import { createGpuRenderer, shaderShape } from "./gpu-renderer";
+import type { GpuMedia } from "./gpu/types";
 import { webglAvailable, webglEngine } from "./gpu/webgl";
 import { webgpuAvailable, webgpuEngine } from "./gpu/webgpu";
 
@@ -418,10 +419,20 @@ export function createLiquidLens(
     contentChanged: () => {
       adaptive?.invalidate();
       adaptive?.refresh(false);
+      // A GPU lens samples one media source; if the backdrop now shows a
+      // different one (a swapped background image) or more than media,
+      // choose the engine again.
+      if (engineInUse !== "svg" && gpuMediaFor(backdrop, settings.source)?.media !== gpuMedia) {
+        renderer.destroy();
+        renderer = chooseRenderer();
+        update();
+      }
     },
   };
 
   let engineInUse: LensEngine = "svg";
+  // The media the GPU renderer samples, when one is in use.
+  let gpuMedia: GpuMedia | undefined;
   let renderer: Renderer = chooseRenderer();
 
   /** The GPU renderer when it can show what the backdrop paints, else SVG. */
@@ -450,6 +461,7 @@ export function createLiquidLens(
           try {
             const engine = kind === "webgpu" ? webgpuEngine(doc, choice.media) : webglEngine(doc, choice.media);
             engineInUse = kind;
+            gpuMedia = choice.media;
             return createGpuRenderer(host, engine, choice.placement, fallBack);
           } catch (error) {
             blocked = error instanceof Error ? error.message : String(error);
