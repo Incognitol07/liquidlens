@@ -420,9 +420,19 @@ export function createLiquidLens(
     if (backdrop.id) {
       inlineComputedStyle(backdrop, built);
     }
+    // Lens frames are removed from the clone below, so styling anything
+    // inside one is wasted work, and with ~500 computed properties per
+    // element it dominates the build. The nearest marked ancestor decides:
+    // one inside the backdrop is a frame that will be removed, while one
+    // outside it (the backdrop sits in a lens) is kept.
     const sourceIdElements = backdrop.querySelectorAll("[id]");
     built.querySelectorAll("[id]").forEach((el, i) => {
-      inlineComputedStyle(sourceIdElements[i], el as HTMLElement);
+      const source = sourceIdElements[i];
+      const frameAncestor = source.closest(`[${LENS_MARKER}]`);
+      if (frameAncestor && backdrop.contains(frameAncestor)) {
+        return;
+      }
+      inlineComputedStyle(source, el as HTMLElement);
     });
     built.removeAttribute("id");
     built.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
