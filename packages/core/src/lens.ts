@@ -8,6 +8,7 @@ import { createSvgRenderer } from "./svg-renderer";
 import { gpuMediaFor, type LensEngine } from "./engine";
 import { createGpuRenderer, shaderShape } from "./gpu-renderer";
 import { webglAvailable, webglEngine } from "./gpu/webgl";
+import { webgpuAvailable, webgpuEngine } from "./gpu/webgpu";
 import { performanceTier } from "./tier";
 
 
@@ -114,14 +115,15 @@ export interface LiquidLensOptions {
    */
   adaptive?: boolean | AdaptiveOptions;
   /**
-   * How the glass is rendered. `"auto"` (the default) uses the GPU (WebGL2)
-   * when it can show exactly what the backdrop paints: the backdrop is an
-   * image, video or canvas, it paints only a CSS background image, or
-   * `source` names the media to refract. Otherwise, or without WebGL2, it
-   * uses SVG. `"webgl"` asks for the GPU and warns when it can't be used;
-   * `"svg"` always uses SVG. `lens.engine` reports the engine in use; a lens
-   * whose GPU source fails (a cross-origin image without CORS, a lost
-   * context) switches to SVG by itself.
+   * How the glass is rendered. `"auto"` (the default) uses the GPU when it
+   * can show exactly what the backdrop paints: the backdrop is an image,
+   * video or canvas, it paints only a CSS background image, or `source`
+   * names the media to refract. It prefers WebGPU, then WebGL2, and uses SVG
+   * otherwise. `"webgpu"` and `"webgl"` start from that engine (WebGPU still
+   * falls back to WebGL2) and warn when the GPU can't be used; `"svg"` always
+   * uses SVG. `lens.engine` reports the engine in use. A lens whose engine
+   * fails at runtime (no WebGPU adapter, a cross-origin image without CORS, a
+   * lost context) moves down the same order by itself.
    */
   engine?: "auto" | LensEngine;
   /**
@@ -429,41 +431,61 @@ export function createLiquidLens(
   let renderer: Renderer = chooseRenderer();
 
   /** The GPU renderer when it can show what the backdrop paints, else SVG. */
-  function chooseRenderer(): Renderer {
-    if (settings.engine !== "svg") {
+  /**
+   * The first engine that can show what the backdrop paints: WebGPU, then
+   * WebGL2, then SVG. `below` skips the engines a failed lens already tried.
+   */
+  function chooseRenderer(below?: LensEngine): Renderer {
+    const wanted = settings.engine;
+    if (wanted !== "svg") {
       const choice = gpuMediaFor(backdrop, settings.source);
       let blocked: string | null = !choice
         ? "the backdrop paints more than one image, video or canvas (pass `source` to refract one)"
         : !shaderShape(resolveShape(settings.shape, 0))
           ? "custom shapes render with SVG"
-          : !webglAvailable(doc)
-            ? "WebGL2 is unavailable"
-            : null;
+          : null;
       if (!blocked && choice) {
-        try {
-          const engine = webglEngine(doc, choice.media);
-          engineInUse = "webgl";
-          return createGpuRenderer(host, engine, choice.placement, fallBackToSvg);
-        } catch (error) {
-          blocked = error instanceof Error ? error.message : String(error);
+        const order: Exclude<LensEngine, "svg">[] = [];
+        if (wanted !== "webgl" && below !== "webgpu" && below !== "webgl" && webgpuAvailable()) {
+          order.push("webgpu");
         }
+        if (below !== "webgl" && webglAvailable(doc)) {
+          order.push("webgl");
+        }
+        for (const kind of order) {
+          try {
+            const engine = kind === "webgpu" ? webgpuEngine(doc, choice.media) : webglEngine(doc, choice.media);
+            engineInUse = kind;
+            return createGpuRenderer(host, engine, choice.placement, fallBack);
+          } catch (error) {
+            blocked = error instanceof Error ? error.message : String(error);
+          }
+        }
+        blocked ??= "no GPU engine is available";
       }
-      if (settings.engine === "webgl") {
-        console.warn(`liquidlens: engine "webgl" can't be used here (${blocked}); rendering with SVG.`);
+      if (wanted !== "auto") {
+        console.warn(`liquidlens: engine "${wanted}" can't be used here (${blocked}); rendering with SVG.`);
       }
     }
     engineInUse = "svg";
     return createSvgRenderer(host);
   }
 
-  function fallBackToSvg(reason: string): void {
+  /** Moves a lens whose engine failed down to the next engine. */
+  function fallBack(reason: string): void {
     if (destroyed || engineInUse === "svg") {
       return;
     }
-    console.warn(`liquidlens: the GPU engine stopped (${reason}); rendering with SVG.`);
+    const failed = engineInUse;
     renderer.destroy();
-    engineInUse = "svg";
-    renderer = createSvgRenderer(host);
+    renderer = chooseRenderer(failed);
+    // chooseRenderer set the engine it landed on.
+    const landed = engineInUse as LensEngine;
+    // An adapter refused or a source WebGPU rejects is routine; only falling
+    // all the way to SVG, or an engine asked for by name, is worth a warning.
+    if (landed === "svg" || settings.engine === failed) {
+      console.warn(`liquidlens: the ${failed} engine stopped (${reason}); rendering with ${landed}.`);
+    }
     update();
   }
 

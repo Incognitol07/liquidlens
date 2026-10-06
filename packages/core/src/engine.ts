@@ -10,7 +10,7 @@ import {
 } from "./source";
 
 /** The engine a lens renders with. */
-export type LensEngine = "webgl" | "svg";
+export type LensEngine = "webgpu" | "webgl" | "svg";
 
 /** What a GPU lens samples, and where that media sits relative to the backdrop. */
 export interface GpuChoice {
