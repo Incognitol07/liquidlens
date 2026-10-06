@@ -395,6 +395,27 @@ export function createLiquidLens(
   refraction.appendChild(clone);
   frame.appendChild(refraction);
 
+  // Tint and specular rim, as plain layers over the refraction: the tint,
+  // then the rim screen-blended on top so it brightens like a real highlight.
+  // Blending the rim inside the filter graph is one of its most expensive
+  // passes per frame; as layers, rim and tint cost almost nothing. Like the
+  // refraction, they sit beneath the consumer's positioned content.
+  const overlayLayer = (): HTMLElement => {
+    const el = doc.createElement("div");
+    Object.assign(el.style, {
+      position: "absolute",
+      inset: "0",
+      pointerEvents: "none",
+      display: "none",
+    });
+    return el;
+  };
+  const tintLayer = overlayLayer();
+  const shineLayer = overlayLayer();
+  Object.assign(shineLayer.style, { backgroundSize: "100% 100%", mixBlendMode: "screen" });
+  refraction.after(tintLayer, shineLayer);
+  let shownSpecular = "";
+
   let syncedX = Number.NaN;
   let syncedY = Number.NaN;
 
@@ -638,14 +659,13 @@ export function createLiquidLens(
         specular: effect.specular,
         specularColor: settings.specularColor,
         specularSharpness: settings.specularSharpness,
-        tint: adaptedTint ?? settings.tint,
-        tintOpacity: settings.tintOpacity,
       },
       resolution,
     );
     // The filter id cycles on update (WebKit repaint workaround), so the
     // reference must be re-applied.
     refraction.style.filter = glassFilter.cssFilter;
+    renderOverlays();
 
     clone.style.width = `${backdropWidth}px`;
     clone.style.height = `${backdropHeight}px`;
@@ -654,6 +674,27 @@ export function createLiquidLens(
     syncTo(frameRect.left - backdropRect.left, frameRect.top - backdropRect.top);
     reconcileAdaptive();
     reconcileContrastRing();
+  }
+
+  /** Brings the tint and shine layers in line with the settings and filter. */
+  function renderOverlays(): void {
+    const tint = adaptedTint ?? settings.tint;
+    const tintOpacity = settings.tintOpacity ?? 0.2;
+    const showTint = !paused && tint != null && tintOpacity > 0;
+    if (showTint) {
+      tintLayer.style.background = tint;
+      tintLayer.style.opacity = String(tintOpacity);
+    }
+    tintLayer.style.display = showTint ? "" : "none";
+
+    // The image only changes when the rim is regenerated; re-assigning a
+    // ~100 KB data URL on every update would re-decode it for nothing.
+    const specular = glassFilter.specularImage;
+    if (specular !== shownSpecular) {
+      shineLayer.style.backgroundImage = specular ? `url("${specular}")` : "";
+      shownSpecular = specular;
+    }
+    shineLayer.style.display = !paused && specular ? "" : "none";
   }
 
   // A contrasting border overlay drawn under increased contrast. It is a
@@ -755,6 +796,7 @@ export function createLiquidLens(
     }
     paused = true;
     refraction.style.display = "none";
+    renderOverlays();
   }
 
   function resume(): void {
@@ -763,6 +805,7 @@ export function createLiquidLens(
     }
     paused = false;
     refraction.style.display = "";
+    renderOverlays();
     if (cloneStale && !contentFrozen) {
       refreshClone();
     } else {
@@ -816,6 +859,8 @@ export function createLiquidLens(
       contrastRing?.remove();
       contrastRing = undefined;
       refraction.remove();
+      tintLayer.remove();
+      shineLayer.remove();
       glassFilter.destroy();
       frame.removeAttribute(LENS_MARKER);
       frame.style.position = priorInlinePosition;

@@ -17,8 +17,6 @@ const CHANNEL_MATRICES = {
 const ABERRATION_EPSILON = 0.0005;
 /** Below this distance from 1, the saturate pass changes nothing visible. */
 const SATURATION_EPSILON = 0.001;
-/** Strength of the color tint when one is set but no opacity is given. */
-const DEFAULT_TINT_OPACITY = 0.2;
 
 /** The optical (non-geometry) knobs of the glass effect. */
 export interface GlassEffectOptions {
@@ -38,24 +36,14 @@ export interface GlassEffectOptions {
   /** Light direction in degrees: 0 lights the top edge, 90 the right edge */
   lightAngle: number;
   /**
-   * 0..1: strength of the specular rim highlight.
-   * 0 removes the highlight image and blend pass from the filter entirely.
+   * 0..1: strength of the specular rim highlight, rendered into
+   * `specularImage` (not into the filter). 0 skips generating it.
    */
   specular: number;
   /** CSS color of the specular highlight (default white). */
   specularColor?: string;
   /** Directional exponent of the highlight; higher is a tighter hot spot. */
   specularSharpness?: number;
-  /**
-   * CSS color overlaid on the refracted content to tint the glass. When
-   * unset, no tint pass is added to the filter.
-   */
-  tint?: string;
-  /**
-   * 0..1: strength of the tint overlay (default 0.2). 0 removes the tint
-   * pass entirely.
-   */
-  tintOpacity?: number;
 }
 
 export interface GlassFilterOptions extends LensParams, GlassEffectOptions {}
@@ -68,6 +56,13 @@ export interface GlassFilter {
    * to the primitives of an already-referenced filter.
    */
   readonly cssFilter: string;
+  /**
+   * Data URL of the specular rim image from the last `update()`, sized to
+   * the lens (stretch it over the element), or `""` when `specular` is 0.
+   * The filter does not include the rim: draw this as a layer above the
+   * filtered element with `mix-blend-mode: screen`.
+   */
+  readonly specularImage: string;
   /**
    * Regenerates the displacement and specular maps and re-tunes the filter.
    * `resolution` (samples per CSS px) overrides the devicePixelRatio
@@ -132,38 +127,35 @@ interface PipelineConfig {
   split: boolean;
   blur: boolean;
   saturate: boolean;
-  tint: boolean;
-  specular: boolean;
 }
 
 function sameConfig(a: PipelineConfig, b: PipelineConfig): boolean {
   return (
     a.split === b.split &&
     a.blur === b.blur &&
-    a.saturate === b.saturate &&
-    a.tint === b.tint &&
-    a.specular === b.specular
+    a.saturate === b.saturate
   );
 }
 
 interface PipelineHandles {
   config: PipelineConfig;
   mapImage: SVGElement;
-  specularImage?: SVGElement;
   /** [red, green, blue] when split, otherwise a single element */
   displacements: SVGElement[];
   blur?: SVGElement;
   saturate?: SVGElement;
-  /** feFlood whose color/opacity carry the tint, when the tint pass is on */
-  tintFlood?: SVGElement;
 }
 
 /**
  * Builds the refraction pipeline into `filter`, replacing any previous
  * primitives: displacement (per-channel when aberration is on) -> optional
- * blur -> optional saturate -> screen-blend the specular rim light. Every
- * pass an option turns off is a real per-frame raster cost avoided, so the
- * pipeline only ever contains what the current settings use.
+ * blur -> optional saturate. Every pass an option turns off is a real
+ * per-frame raster cost avoided, so the pipeline only ever contains what the
+ * current settings use.
+ *
+ * The specular rim and the tint are not part of the graph: the caller draws
+ * them as layers over the element, where they cost almost nothing per frame,
+ * while blending the rim in the graph is one of its most expensive passes.
  */
 function buildPipeline(
   doc: Document,
@@ -172,16 +164,15 @@ function buildPipeline(
 ): PipelineHandles {
   const primitives = Array.from(filter.children);
   let mapImage = primitives.find(el => el.tagName === "feImage" && el.getAttribute("result") === "map") as SVGElement | undefined;
-  let specularImage = primitives.find(el => el.tagName === "feImage" && el.getAttribute("result") === "specular") as SVGElement | undefined;
 
-  // Remove everything except the reused feImages
+  // Remove everything except the map feImage, which keeps its href so a
+  // rebuild needn't re-decode the map.
   for (const child of primitives) {
-    if (child !== mapImage && child !== specularImage) {
+    if (child !== mapImage) {
       child.remove();
     }
   }
 
-  // Create them if they didn't exist
   if (!mapImage) {
     mapImage = doc.createElementNS(SVG_NS, "feImage");
     mapImage.setAttribute("x", "0");
@@ -189,14 +180,6 @@ function buildPipeline(
     mapImage.setAttribute("preserveAspectRatio", "none");
     mapImage.setAttribute("result", "map");
     filter.appendChild(mapImage);
-  }
-  if (!specularImage) {
-    specularImage = doc.createElementNS(SVG_NS, "feImage");
-    specularImage.setAttribute("x", "0");
-    specularImage.setAttribute("y", "0");
-    specularImage.setAttribute("preserveAspectRatio", "none");
-    specularImage.setAttribute("result", "specular");
-    filter.appendChild(specularImage);
   }
 
   const fe = (name: string, attrs: Record<string, string>): SVGElement => {
@@ -284,47 +267,12 @@ function buildPipeline(
     current = "glass";
   }
 
-  // The color tint: a flood of the tint color, clipped to the refracted
-  // content's alpha so it never bleeds into the rim overshoot, then laid
-  // over the content. Sits under the specular so the highlight stays on top.
-  let tintFlood: SVGElement | undefined;
-  if (config.tint) {
-    tintFlood = fe("feFlood", {
-      "flood-color": "#000000",
-      "flood-opacity": "0",
-      result: "tint-flood",
-    });
-    fe("feComposite", {
-      in: "tint-flood",
-      in2: current,
-      operator: "in",
-      result: "tint-clip",
-    });
-    const merge = fe("feMerge", { result: "tinted" });
-    const base = doc.createElementNS(SVG_NS, "feMergeNode");
-    base.setAttribute("in", current);
-    merge.appendChild(base);
-    const top = doc.createElementNS(SVG_NS, "feMergeNode");
-    top.setAttribute("in", "tint-clip");
-    merge.appendChild(top);
-    current = "tinted";
-  }
-
-  // The specular rim light, screen-blended so it brightens like a real
-  // highlight instead of hazing like an overlay. When omitted, the last
-  // primitive above is the filter's output.
-  if (config.specular) {
-    fe("feBlend", { in: current, in2: "specular", mode: "screen" });
-  }
-
   return {
     config,
     mapImage,
-    specularImage: config.specular ? specularImage : undefined,
     displacements,
     blur,
     saturate,
-    tintFlood,
   };
 }
 
@@ -352,8 +300,11 @@ function applyImage(
  * should bend (typically a copy of the page backdrop; the filter cannot
  * sample what is behind the element).
  *
- * The filter region keeps SVG's default 10% margin so rim pixels can sample
- * content just outside the element's bounds.
+ * The filter region is padded by the displacement depth and blur spread so
+ * rim pixels can sample content just outside the element's bounds.
+ *
+ * The specular rim is not part of the filter: it is rendered to
+ * `specularImage` for the caller to draw above the element (screen blend).
  */
 export function createGlassFilter(doc: Document = document): GlassFilter {
   const shell = createFilterShell(doc);
@@ -365,8 +316,6 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
     split: true,
     blur: true,
     saturate: true,
-    tint: false,
-    specular: true,
   });
   doc.body.appendChild(shell.svg);
 
@@ -381,6 +330,7 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
   let specularKey = "";
   let mapDataUrl = "";
   let specularDataUrl = "";
+  let specularOn = false;
 
   // Scale state lives outside update() so per-frame intensity changes can
   // re-tune displacement magnitude without regenerating the map.
@@ -403,6 +353,10 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
   return {
     get cssFilter() {
       return `url(#${shell.id})`;
+    },
+
+    get specularImage() {
+      return specularOn ? specularDataUrl : "";
     },
 
     update(options: GlassFilterOptions, resolutionOverride?: number): void {
@@ -429,18 +383,14 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
       shell.filter.setAttribute("width", `${100 + 2 * pctX}%`);
       shell.filter.setAttribute("height", `${100 + 2 * pctY}%`);
 
-      const tintOpacity = options.tintOpacity ?? DEFAULT_TINT_OPACITY;
       const config: PipelineConfig = {
         split: options.aberration > ABERRATION_EPSILON,
         blur: options.blur > 0,
         saturate: Math.abs(options.saturation - 1) > SATURATION_EPSILON,
-        tint: options.tint != null && tintOpacity > 0,
-        specular: options.specular > 0,
       };
       if (!sameConfig(config, pipeline.config)) {
+        // The map feImage survives the rebuild, so mapKey stays valid.
         pipeline = buildPipeline(doc, shell.filter, config);
-        // Do not clear mapKey and specularKey: their canvas contents are still valid
-        // and we will apply the cached mapDataUrl/specularDataUrl to the new primitives.
       }
 
       // Encode the field so `depth` px spans the full channel range, giving
@@ -474,7 +424,9 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
         applyImage(pipeline.mapImage, mapCanvas, options.width, options.height, mapDataUrl);
       }
 
-      if (pipeline.specularImage) {
+      // The rim is drawn by the caller as a layer (see specularImage).
+      specularOn = options.specular > 0;
+      if (specularOn) {
         const nextSpecularKey =
           `${geometry}|${options.lightAngle}|${options.specular}|` +
           `${options.specularColor ?? ""}|${options.specularSharpness ?? ""}`;
@@ -491,9 +443,7 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
             },
             resolution,
           );
-          specularDataUrl = applyImage(pipeline.specularImage, specularCanvas, options.width, options.height);
-        } else if (!pipeline.specularImage.getAttribute("href") && specularDataUrl) {
-          applyImage(pipeline.specularImage, specularCanvas, options.width, options.height, specularDataUrl);
+          specularDataUrl = specularCanvas.toDataURL("image/png");
         }
       }
 
@@ -505,11 +455,6 @@ export function createGlassFilter(doc: Document = document): GlassFilter {
 
       pipeline.blur?.setAttribute("stdDeviation", String(options.blur));
       pipeline.saturate?.setAttribute("values", String(options.saturation));
-
-      if (pipeline.tintFlood && options.tint != null) {
-        pipeline.tintFlood.setAttribute("flood-color", options.tint);
-        pipeline.tintFlood.setAttribute("flood-opacity", String(tintOpacity));
-      }
     },
 
     setIntensity(factor: number): void {
