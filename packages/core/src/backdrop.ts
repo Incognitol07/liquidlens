@@ -83,6 +83,63 @@ function mirrorCanvases(backdrop: HTMLElement, clone: HTMLElement): void {
 }
 
 /**
+ * Makes the clone's videos live. A cloned video doesn't share the source's
+ * playback (it shows nothing until it loads and plays its own copy), so each
+ * is replaced by a canvas that draws the source's frames as they are
+ * presented. Drawing works in every engine, cross-origin video included (it
+ * only taints the canvas, which nothing reads back). The canvas takes the
+ * video's computed style inline, `object-fit` included, so it frames the
+ * picture the same way. `copies` are the clone's videos, collected before
+ * mirrorCanvases adds stream videos of its own.
+ */
+function mirrorVideos(backdrop: HTMLElement, copies: HTMLVideoElement[]): void {
+  if (copies.length === 0) {
+    return;
+  }
+  const sources = [...backdrop.querySelectorAll("video")].filter(
+    (video) => !insideLensFrame(video, backdrop),
+  );
+  const doc = backdrop.ownerDocument;
+  copies.forEach((copy, i) => {
+    const source = sources[i];
+    if (!source) {
+      return;
+    }
+    const canvas = doc.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    inlineComputedStyle(source, canvas);
+    const draw = (): void => {
+      if (source.videoWidth === 0) {
+        return;
+      }
+      if (canvas.width !== source.videoWidth || canvas.height !== source.videoHeight) {
+        canvas.width = source.videoWidth;
+        canvas.height = source.videoHeight;
+      }
+      ctx.drawImage(source, 0, 0);
+    };
+    // Stops once the canvas has been in the document and left it (its clone
+    // was replaced or the lens destroyed).
+    let attached = false;
+    const onFrame = (): void => {
+      if (canvas.isConnected) {
+        attached = true;
+      } else if (attached) {
+        return;
+      }
+      draw();
+      source.requestVideoFrameCallback(onFrame);
+    };
+    draw();
+    source.requestVideoFrameCallback(onFrame);
+    copy.replaceWith(canvas);
+  });
+}
+
+/**
  * Builds a static copy of `backdrop` for a lens to refract: id-dependent
  * styling baked in, ids stripped, lens frames removed, sized and positioned
  * to overlay the original from the lens's top-left corner.
@@ -136,8 +193,9 @@ let passTemplate: { backdrop: HTMLElement; clone?: HTMLElement } | undefined;
 
 /**
  * A fresh copy of `backdrop` for a lens to refract (see buildBackdropClone),
- * with its canvases made live (see mirrorCanvases). Each copy gets its own
- * videos: a stream attached to a template would not survive cloneNode.
+ * with its canvases and videos made live (see mirrorCanvases, mirrorVideos).
+ * Each copy gets its own mirrors: a stream or frame loop attached to a
+ * template would not survive cloneNode.
  */
 export function cloneBackdrop(backdrop: HTMLElement): HTMLElement {
   let copy: HTMLElement;
@@ -147,7 +205,9 @@ export function cloneBackdrop(backdrop: HTMLElement): HTMLElement {
     passTemplate.clone ??= buildBackdropClone(backdrop);
     copy = passTemplate.clone.cloneNode(true) as HTMLElement;
   }
+  const videos = [...copy.querySelectorAll("video")];
   mirrorCanvases(backdrop, copy);
+  mirrorVideos(backdrop, videos);
   return copy;
 }
 
