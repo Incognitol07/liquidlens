@@ -1,4 +1,13 @@
 import { clamp } from "./math";
+import {
+  backgroundFit,
+  backgroundImageUrl,
+  boxRectToSource,
+  mediaElementSource,
+  parsePosition,
+  placeMedia,
+  type MediaSource,
+} from "./source";
 
 /**
  * The adaptive layer needs one number to decide how the glass should present
@@ -46,12 +55,6 @@ function averageLuminance(data: Uint8ClampedArray): number {
   return count > 0 ? sum / count : 0.5;
 }
 
-/** Pulls the first `url(...)` out of a `background-image` value, or null. */
-function backgroundImageUrl(value: string): string | null {
-  const match = /url\((['"]?)([^'")]+)\1\)/.exec(value);
-  return match ? match[2] : null;
-}
-
 /**
  * Relative luminance of an opaque `rgb()`/`rgba()` colour (what
  * `getComputedStyle().backgroundColor` returns), or null when it is
@@ -69,71 +72,6 @@ function solidColorLuminance(value: string): number | null {
     return null;
   }
   return relativeLuminance(r, g, b);
-}
-
-type ObjectFit = "fill" | "contain" | "cover";
-
-/** A drawable with intrinsic pixel dimensions and how it maps into its box. */
-interface PixelSource {
-  drawable: CanvasImageSource;
-  width: number;
-  height: number;
-  fit: ObjectFit;
-}
-
-/**
- * Maps a rectangle in the backdrop's box coordinates to the corresponding
- * rectangle in the source image's pixels, honouring `object-fit`/`background-
- * size` (cover/contain are centred; fill stretches each axis). The result is
- * clamped into the image bounds so a frame overhanging the backdrop still
- * samples valid pixels.
- */
-function mapBoxRectToSource(
-  source: PixelSource,
-  boxW: number,
-  boxH: number,
-  fx: number,
-  fy: number,
-  fw: number,
-  fh: number,
-): { sx: number; sy: number; sw: number; sh: number } {
-  const { width: sw, height: sh, fit } = source;
-
-  let toSx: number;
-  let toSy: number;
-  let toSw: number;
-  let toSh: number;
-
-  if (fit === "fill") {
-    const scaleX = sw / boxW;
-    const scaleY = sh / boxH;
-    toSx = fx * scaleX;
-    toSy = fy * scaleY;
-    toSw = fw * scaleX;
-    toSh = fh * scaleY;
-  } else {
-    const scale =
-      fit === "contain"
-        ? Math.min(boxW / sw, boxH / sh)
-        : Math.max(boxW / sw, boxH / sh);
-    const dispW = sw * scale;
-    const dispH = sh * scale;
-    const originX = (boxW - dispW) / 2;
-    const originY = (boxH - dispH) / 2;
-    toSx = (fx - originX) / scale;
-    toSy = (fy - originY) / scale;
-    toSw = fw / scale;
-    toSh = fh / scale;
-  }
-
-  const cx = clamp(toSx, 0, sw);
-  const cy = clamp(toSy, 0, sh);
-  return {
-    sx: cx,
-    sy: cy,
-    sw: clamp(toSw, 1, sw - cx),
-    sh: clamp(toSh, 1, sh - cy),
-  };
 }
 
 export interface BackdropLuminanceOptions {
@@ -192,7 +130,7 @@ export function createBackdropLuminance(
   canvas.height = probe;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-  let source: PixelSource | null = null;
+  let source: MediaSource | null = null;
   // Set when the backdrop is a flat colour: sampling collapses to this one
   // value (no region, no drawable, no read-back).
   let solidLuminance: number | null = null;
@@ -203,31 +141,18 @@ export function createBackdropLuminance(
   let destroyed = false;
   let pendingImage: HTMLImageElement | null = null;
 
-  function resolveSource(): PixelSource | null {
+  function resolveSource(): MediaSource | null {
     if (resolved) {
       return source;
     }
     resolved = true;
 
-    const tag = backdrop.tagName;
-    if (tag === "IMG") {
-      const img = backdrop as HTMLImageElement;
-      if (img.complete && img.naturalWidth > 0) {
-        const fit = (getComputedStyle(img).objectFit as ObjectFit) || "fill";
-        source = { drawable: img, width: img.naturalWidth, height: img.naturalHeight, fit };
-      }
-      return source;
-    }
-    if (tag === "CANVAS") {
-      const c = backdrop as HTMLCanvasElement;
-      source = { drawable: c, width: c.width, height: c.height, fit: "fill" };
-      return source;
-    }
-    if (tag === "VIDEO") {
-      const v = backdrop as HTMLVideoElement;
-      if (v.videoWidth > 0) {
-        source = { drawable: v, width: v.videoWidth, height: v.videoHeight, fit: "fill" };
-      }
+    if (
+      backdrop instanceof HTMLImageElement ||
+      backdrop instanceof HTMLVideoElement ||
+      backdrop instanceof HTMLCanvasElement
+    ) {
+      source = mediaElementSource(backdrop);
       return source;
     }
 
@@ -242,8 +167,8 @@ export function createBackdropLuminance(
       solidLuminance = solidColorLuminance(style.backgroundColor);
       return null;
     }
-    const sizeWord = style.backgroundSize;
-    const fit: ObjectFit = sizeWord === "contain" ? "contain" : "cover";
+    const fit = backgroundFit(style.backgroundSize);
+    const position = parsePosition(style.backgroundPosition);
     const img = new win.Image();
     img.crossOrigin = "anonymous";
     pendingImage = img;
@@ -252,7 +177,7 @@ export function createBackdropLuminance(
       if (destroyed || img.naturalWidth === 0) {
         return;
       }
-      source = { drawable: img, width: img.naturalWidth, height: img.naturalHeight, fit };
+      source = { drawable: img, width: img.naturalWidth, height: img.naturalHeight, fit, position };
       options.onSourceReady?.();
     };
     img.onerror = () => {
@@ -288,7 +213,13 @@ export function createBackdropLuminance(
     const fw = clamp(frameRect.width, 1, boxW - fx);
     const fh = clamp(frameRect.height, 1, boxH - fy);
 
-    const { sx, sy, sw, sh } = mapBoxRectToSource(src, boxW, boxH, fx, fy, fw, fh);
+    const placement = placeMedia(boxW, boxH, src.width, src.height, src.fit, src.position);
+    const { sx, sy, sw, sh } = boxRectToSource(placement, src.width, src.height, {
+      x: fx,
+      y: fy,
+      width: fw,
+      height: fh,
+    });
 
     try {
       ctx.clearRect(0, 0, probe, probe);
