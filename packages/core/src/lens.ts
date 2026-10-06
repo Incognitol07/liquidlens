@@ -1,3 +1,4 @@
+import { cloneBackdrop, LENS_MARKER, watchBackdrop } from "./backdrop";
 import { accessibleEffect, CONTRAST_RING, type AccessibilityFlags } from "./a11y";
 import { createAdaptiveLayer, type AdaptiveLayer, type AdaptiveOptions } from "./adaptive";
 import { createGlassFilter } from "./filter";
@@ -5,7 +6,6 @@ import { presets } from "./presets";
 import { resolveShape, type LensShape, type LensShapeName } from "./shape";
 import { performanceTier } from "./tier";
 
-const LENS_MARKER = "data-liquidlens";
 
 export interface LiquidLensOptions {
   /** Maximum displacement at the rim, in px (default 24) */
@@ -391,69 +391,7 @@ export function createLiquidLens(
     filter: glassFilter.cssFilter,
   });
 
-  /**
-   * Copies an element's full computed style onto its clone as inline style.
-   * Id-scoped CSS (`#backdrop { background: … }`) stops matching once the
-   * clone's ids are stripped below, which would silently drop styling — a
-   * backdrop's wallpaper, an id-positioned child — from the refraction, so
-   * every id-bearing element gets its resolved style baked in first. Runs
-   * only for those elements, and pseudo-element styles are not carried over.
-   */
-  function inlineComputedStyle(source: Element, target: HTMLElement): void {
-    const win = source.ownerDocument.defaultView;
-    if (!win) {
-      return;
-    }
-    const computed = win.getComputedStyle(source);
-    for (let i = 0; i < computed.length; i++) {
-      const property = computed.item(i);
-      target.style.setProperty(property, computed.getPropertyValue(property));
-    }
-  }
-
-  function buildClone(): HTMLElement {
-    const built = backdrop.cloneNode(true) as HTMLElement;
-    built.setAttribute("aria-hidden", "true");
-    // Bake id-dependent styling in while the two trees are still identical
-    // (parallel [id] queries walk them in the same document order); the
-    // marker-removal below would desynchronise the lists.
-    if (backdrop.id) {
-      inlineComputedStyle(backdrop, built);
-    }
-    // Lens frames are removed from the clone below, so styling anything
-    // inside one is wasted work, and with ~500 computed properties per
-    // element it dominates the build. The nearest marked ancestor decides:
-    // one inside the backdrop is a frame that will be removed, while one
-    // outside it (the backdrop sits in a lens) is kept.
-    const sourceIdElements = backdrop.querySelectorAll("[id]");
-    built.querySelectorAll("[id]").forEach((el, i) => {
-      const source = sourceIdElements[i];
-      const frameAncestor = source.closest(`[${LENS_MARKER}]`);
-      if (frameAncestor && backdrop.contains(frameAncestor)) {
-        return;
-      }
-      inlineComputedStyle(source, el as HTMLElement);
-    });
-    built.removeAttribute("id");
-    built.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
-    built.querySelectorAll(`[${LENS_MARKER}]`).forEach((el) => el.remove());
-    Object.assign(built.style, {
-      position: "absolute",
-      top: "0",
-      left: "0",
-      margin: "0",
-      width: `${backdrop.clientWidth}px`,
-      height: `${backdrop.clientHeight}px`,
-      pointerEvents: "none",
-    });
-    // The clone is sized to the backdrop's clientWidth, which excludes any
-    // scrollbar; rendering its own scrollbar would shrink its content area
-    // below the original's and shift every line of text.
-    built.style.setProperty("scrollbar-width", "none");
-    return built;
-  }
-
-  let clone = buildClone();
+  let clone = cloneBackdrop(backdrop);
   refraction.appendChild(clone);
   frame.appendChild(refraction);
 
@@ -585,11 +523,8 @@ export function createLiquidLens(
   // otherwise refract stale pixels until the lens is recreated. Rather than
   // replaying individual mutation records (fragile ordering, moved nodes),
   // any relevant change rebuilds the whole clone, coalesced to once per
-  // frame. Mutations inside any lens frame are ignored: the lens's own
-  // bookkeeping (clone transforms, scroll mirroring, the rebuild itself)
-  // mutates the tree constantly and must not retrigger the observer.
+  // frame. Mutations inside any lens frame are ignored (see watchBackdrop).
   let destroyed = false;
-  let refreshQueued = false;
   let paused = false;
   // Suspends only the (expensive) clone rebuild, while the lens stays visible
   // and scroll-aligned — for the duration of a heavy interaction such as a
@@ -609,7 +544,7 @@ export function createLiquidLens(
       return;
     }
     cloneStale = false;
-    const next = buildClone();
+    const next = cloneBackdrop(backdrop);
     clone.replaceWith(next);
     clone = next;
     // The new clone carries no transform or scroll state; re-derive both.
@@ -622,50 +557,20 @@ export function createLiquidLens(
     adaptive?.invalidate();
   }
 
-  function scheduleCloneRefresh(): void {
-    if (refreshQueued) {
-      return;
-    }
-    refreshQueued = true;
-    const win = doc.defaultView;
-    const schedule = win?.requestAnimationFrame?.bind(win) ?? queueMicrotask;
-    schedule(() => {
-      refreshQueued = false;
-      refreshClone();
-    });
-  }
-
-  let mutationObserver: MutationObserver | undefined;
+  // One observer and one per-frame rebuild pass per backdrop, shared by
+  // every lens on it (see watchBackdrop), so N lenses build the copy once.
+  let unwatchContent: (() => void) | undefined;
 
   function setContentTracking(enabled: boolean): void {
-    if (enabled === (mutationObserver !== undefined)) {
+    if (enabled === (unwatchContent !== undefined)) {
       return;
     }
-    if (!enabled) {
-      mutationObserver?.disconnect();
-      mutationObserver = undefined;
-      return;
+    if (enabled) {
+      unwatchContent = watchBackdrop(backdrop, refreshClone);
+    } else {
+      unwatchContent?.();
+      unwatchContent = undefined;
     }
-    if (typeof MutationObserver === "undefined") {
-      return;
-    }
-    mutationObserver = new MutationObserver((records) => {
-      for (const record of records) {
-        const target = record.target;
-        const el =
-          target.nodeType === 1 ? (target as Element) : target.parentElement;
-        if (!el || !el.closest(`[${LENS_MARKER}]`)) {
-          scheduleCloneRefresh();
-          return;
-        }
-      }
-    });
-    mutationObserver.observe(backdrop, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      characterData: true,
-    });
   }
 
   // Size of the frame at the last update, so the ResizeObserver can skip
