@@ -121,13 +121,12 @@ function mirrorVideos(backdrop: HTMLElement, copies: HTMLVideoElement[]): void {
       }
       ctx.drawImage(source, 0, 0);
     };
-    // Stops once the canvas has been in the document and left it (its clone
-    // was replaced or the lens destroyed).
-    let attached = false;
+    // A clone is inserted as soon as it is built, so a canvas that is out of
+    // the document when a frame arrives belongs to a discarded clone (rebuilt,
+    // or its lens destroyed) and its loop ends. A paused source delivers no
+    // frames, so this check runs on the first frame after it resumes.
     const onFrame = (): void => {
-      if (canvas.isConnected) {
-        attached = true;
-      } else if (attached) {
+      if (!canvas.isConnected) {
         return;
       }
       draw();
