@@ -8,6 +8,7 @@ import {
   type LensShapeName,
   type LiquidLens as LiquidLensHandle,
   type LiquidLensOptions,
+  type LensEngine,
   type PerformanceTier,
 } from "@liquidlens/core";
 import {
@@ -27,6 +28,7 @@ import {
 export type {
   LiquidLensHandle,
   LiquidLensOptions,
+  LensEngine,
   LensPresetName,
   LensShape,
   LensShapeName,
@@ -104,6 +106,8 @@ const LENS_OPTION_KEYS = new Set<string>([
   "trackContent",
   "onReady",
   "adaptive",
+  "engine",
+  "source",
 ]);
 
 // --- Dev-only guard against silently-swallowed props -----------------------

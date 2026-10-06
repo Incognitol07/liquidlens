@@ -10,6 +10,7 @@ export { renderSpecularToCanvas } from "./specular";
 export type { GlassFilter, GlassFilterOptions, GlassEffectOptions } from "./filter";
 export { createGlassFilter } from "./filter";
 export type { LiquidLens, LiquidLensOptions } from "./lens";
+export type { LensEngine } from "./engine";
 export { createLiquidLens } from "./lens";
 export type { LensPreset, LensPresetName } from "./presets";
 export { presets } from "./presets";

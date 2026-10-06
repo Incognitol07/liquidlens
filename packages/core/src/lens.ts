@@ -2,9 +2,12 @@ import { LENS_MARKER } from "./backdrop";
 import { accessibleEffect, CONTRAST_RING, type AccessibilityFlags } from "./a11y";
 import { createAdaptiveLayer, type AdaptiveLayer, type AdaptiveOptions } from "./adaptive";
 import { presets } from "./presets";
-import type { LensLayout, Renderer } from "./renderer";
+import type { LensLayout, Renderer, RendererHost } from "./renderer";
 import { resolveShape, type LensShape, type LensShapeName } from "./shape";
 import { createSvgRenderer } from "./svg-renderer";
+import { gpuMediaFor, type LensEngine } from "./engine";
+import { createGpuRenderer, shaderShape } from "./gpu-renderer";
+import { webglAvailable, webglEngine } from "./gpu/webgl";
 import { performanceTier } from "./tier";
 
 
@@ -110,6 +113,23 @@ export interface LiquidLensOptions {
    * `adaptive: { luminance }` to supply the brightness yourself.
    */
   adaptive?: boolean | AdaptiveOptions;
+  /**
+   * How the glass is rendered. `"auto"` (the default) uses the GPU (WebGL2)
+   * when it can show exactly what the backdrop paints: the backdrop is an
+   * image, video or canvas, it paints only a CSS background image, or
+   * `source` names the media to refract. Otherwise, or without WebGL2, it
+   * uses SVG. `"webgl"` asks for the GPU and warns when it can't be used;
+   * `"svg"` always uses SVG. `lens.engine` reports the engine in use; a lens
+   * whose GPU source fails (a cross-origin image without CORS, a lost
+   * context) switches to SVG by itself.
+   */
+  engine?: "auto" | LensEngine;
+  /**
+   * The image, video or canvas the GPU engine refracts, when the backdrop
+   * isn't one itself (e.g. a hero section whose `<video>` fills it). Use it
+   * when that media is all that shows behind the lens.
+   */
+  source?: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement;
 }
 
 export interface LiquidLens {
@@ -167,6 +187,8 @@ export interface LiquidLens {
   unfreeze(): void;
   /** The lens's current options, including defaults, as a read-only snapshot. */
   readonly options: Readonly<LiquidLensOptions>;
+  /** The engine rendering this lens right now. */
+  readonly engine: LensEngine;
   /**
    * Removes everything the lens added to the document and restores the
    * `position`/`overflow` inline styles the frame had before the lens
@@ -179,6 +201,7 @@ type ResolvedOptions = Required<
   Omit<
     LiquidLensOptions,
     | "adaptive"
+    | "source"
     | "borderRadius"
     | "onReady"
     | "shape"
@@ -203,6 +226,7 @@ function defaultsFor(win: (Window & typeof globalThis) | null): ResolvedOptions 
     increasedContrast: "auto",
     trackScroll: true,
     trackContent: true,
+    engine: "auto",
   };
 }
 
@@ -387,7 +411,7 @@ export function createLiquidLens(
   let adaptedTint: string | undefined;
   let destroyed = false;
 
-  const renderer: Renderer = createSvgRenderer({
+  const host: RendererHost = {
     frame,
     backdrop,
     // The view under the frame changed, so re-read it (cheap live path; tint
@@ -399,7 +423,49 @@ export function createLiquidLens(
       adaptive?.invalidate();
       adaptive?.refresh(false);
     },
-  });
+  };
+
+  let engineInUse: LensEngine = "svg";
+  let renderer: Renderer = chooseRenderer();
+
+  /** The GPU renderer when it can show what the backdrop paints, else SVG. */
+  function chooseRenderer(): Renderer {
+    if (settings.engine !== "svg") {
+      const choice = gpuMediaFor(backdrop, settings.source);
+      let blocked: string | null = !choice
+        ? "the backdrop paints more than one image, video or canvas (pass `source` to refract one)"
+        : !shaderShape(resolveShape(settings.shape, 0))
+          ? "custom shapes render with SVG"
+          : !webglAvailable(doc)
+            ? "WebGL2 is unavailable"
+            : null;
+      if (!blocked && choice) {
+        try {
+          const engine = webglEngine(doc, choice.media);
+          engineInUse = "webgl";
+          return createGpuRenderer(host, engine, choice.placement, fallBackToSvg);
+        } catch (error) {
+          blocked = error instanceof Error ? error.message : String(error);
+        }
+      }
+      if (settings.engine === "webgl") {
+        console.warn(`liquidlens: engine "webgl" can't be used here (${blocked}); rendering with SVG.`);
+      }
+    }
+    engineInUse = "svg";
+    return createSvgRenderer(host);
+  }
+
+  function fallBackToSvg(reason: string): void {
+    if (destroyed || engineInUse === "svg") {
+      return;
+    }
+    console.warn(`liquidlens: the GPU engine stopped (${reason}); rendering with SVG.`);
+    renderer.destroy();
+    engineInUse = "svg";
+    renderer = createSvgRenderer(host);
+    update();
+  }
 
   // Size of the frame at the last update, so the ResizeObserver can skip
   // sizes that an explicit update (e.g. a per-frame morph) already handled.
@@ -409,6 +475,12 @@ export function createLiquidLens(
   function update(next: LiquidLensOptions = {}, resolution?: number): void {
     warnOnSuspectOptions(next);
     settings = { ...settings, ...next };
+
+    // What the lens renders with depends on these; choose again when they change.
+    if ("engine" in next || "source" in next || "shape" in next) {
+      renderer.destroy();
+      renderer = chooseRenderer();
+    }
 
     // A consumer-set tint replaces any tint the adaptive layer had derived, so
     // the next adaptive sample re-derives from the new base instead of the old.
@@ -582,6 +654,9 @@ export function createLiquidLens(
     resume: () => renderer.resume(),
     freeze: () => renderer.freeze(),
     unfreeze: () => renderer.unfreeze(),
+    get engine(): LensEngine {
+      return engineInUse;
+    },
     get options(): Readonly<LiquidLensOptions> {
       return { ...settings };
     },
