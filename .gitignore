@@ -4,3 +4,6 @@ dist
 *.log
 .vscode/*
 !.vscode/extensions.json
+
+# Local media for the dev-only spike page (not project assets)
+apps/site/public/spike-media/
